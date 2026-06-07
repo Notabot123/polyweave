@@ -47,13 +47,15 @@ class _VanillaEncoder(nn.Module):
 class _SigmaPiEncoder(nn.Module):
     """conv-BN-ReLU(-Dropout2d) then a Sigma-Pi block, preserving spatial resolution."""
 
-    def __init__(self, in_ch: int, width: int, dropout: float = 0.0) -> None:
+    def __init__(
+        self, in_ch: int, width: int, dropout: float = 0.0, center_product: bool = False
+    ) -> None:
         super().__init__()
         self.in_conv = nn.Sequential(
             nn.Conv2d(in_ch, width, 3, padding=1), nn.BatchNorm2d(width), nn.ReLU(),
             *_maybe_dropout(dropout),
         )
-        self.sigmapi = ConvSigmaPi2d(width)
+        self.sigmapi = ConvSigmaPi2d(width, center_product=center_product)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.sigmapi(self.in_conv(x))
@@ -63,11 +65,18 @@ class _TeacherBase(nn.Module):
     """Common encoder construction and pi-scale diagnostic."""
 
     def _build_encoder(
-        self, in_ch: int, width: int, sigma_pi: bool, dropout: float = 0.0
+        self,
+        in_ch: int,
+        width: int,
+        sigma_pi: bool,
+        dropout: float = 0.0,
+        center_product: bool = False,
     ) -> nn.Module:
         self.sigma_pi = sigma_pi
         if sigma_pi:
-            enc = _SigmaPiEncoder(in_ch, width, dropout=dropout)
+            enc = _SigmaPiEncoder(
+                in_ch, width, dropout=dropout, center_product=center_product
+            )
             self._sigmapi: Optional[ConvSigmaPi2d] = enc.sigmapi
         else:
             enc = _VanillaEncoder(in_ch, width, dropout=dropout)
@@ -105,10 +114,13 @@ class ConvFilterTeacher(_TeacherBase):
         width: int = 64,
         sigma_pi: bool = False,
         dropout: float = 0.0,
+        center_product: bool = False,
     ) -> None:
         super().__init__()
         self.spec = spec
-        self.encoder = self._build_encoder(proto_channels, width, sigma_pi, dropout)
+        self.encoder = self._build_encoder(
+            proto_channels, width, sigma_pi, dropout, center_product
+        )
         self.pool = nn.AdaptiveAvgPool2d(1)
         self.head = nn.Linear(width, spec.num_params)
 
@@ -145,11 +157,14 @@ class FCMapTeacher(_TeacherBase):
         width: int = 64,
         sigma_pi: bool = False,
         dropout: float = 0.0,
+        center_product: bool = False,
     ) -> None:
         super().__init__()
         self.num_classes = num_classes
         self.feature_dim = feature_dim
-        self.encoder = self._build_encoder(proto_channels, width, sigma_pi, dropout)
+        self.encoder = self._build_encoder(
+            proto_channels, width, sigma_pi, dropout, center_product
+        )
         self.weight_head = nn.Conv2d(width, 1, 1)
         self.bias_head = nn.Sequential(
             nn.AdaptiveAvgPool2d((num_classes, 1)),
@@ -185,11 +200,14 @@ class QKMapTeacher(_TeacherBase):
         sigma_pi: bool = False,
         out_scale: float = 0.1,
         dropout: float = 0.0,
+        center_product: bool = False,
     ) -> None:
         super().__init__()
         self.d_model = d_model
         self.n_layers = n_layers
-        self.encoder = self._build_encoder(proto_channels, width, sigma_pi, dropout)
+        self.encoder = self._build_encoder(
+            proto_channels, width, sigma_pi, dropout, center_product
+        )
         self.weight_head = nn.Conv2d(width, 2 * n_layers, 3, padding=1)
         self.bias_head = nn.Linear(width, 2 * n_layers * d_model)
         self.out_scale = nn.Parameter(torch.tensor(float(out_scale)))

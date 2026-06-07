@@ -25,6 +25,7 @@ dependencies = [
 
 [project.optional-dependencies]
 experiments = ["torchvision>=0.15"]
+distill = ["transformers>=4.30"]
 dev = ["pytest>=7.0"]
 
 [tool.setuptools.packages.find]

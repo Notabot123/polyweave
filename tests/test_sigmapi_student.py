@@ -36,15 +36,14 @@ from polyweave.utils import set_seed
 
 def test_sigmapi_spec_num_params_and_roundtrip():
     spec = SigmaPiConvTargetSpec(channels=8, kernel_size=3)
-    # two conv weight matrices + two biases
-    assert spec.num_params == 2 * (8 * 8 * 3 * 3) + 2 * 8
+    # two conv weight matrices + one (sigma) bias; pi branch has no bias
+    assert spec.num_params == 2 * (8 * 8 * 3 * 3) + 8
 
     flat = torch.randn(spec.num_params)
     w = spec.unpack(flat)
     assert w["sigma_weight"].shape == (8, 8, 3, 3)
-    assert w["pi_weight"].shape == (8, 8, 3, 3)
+    assert w["pi_weight_raw"].shape == (8, 8, 3, 3)
     assert w["sigma_bias"].shape == (8,)
-    assert w["pi_bias"].shape == (8,)
     assert torch.allclose(spec.pack(w), flat)
 
 
@@ -55,7 +54,7 @@ def test_sigmapi_spec_install_extract_roundtrip():
     weights = spec.unpack(flat)
     spec.install(block, weights)
     out = spec.extract(block)
-    for k in ("sigma_weight", "sigma_bias", "pi_weight", "pi_bias"):
+    for k in ("sigma_weight", "sigma_bias", "pi_weight_raw"):
         assert torch.allclose(out[k], weights[k], atol=1e-6)
 
 

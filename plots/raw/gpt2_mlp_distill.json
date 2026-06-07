@@ -1,0 +1,98 @@
+[
+  {
+    "label": "early block",
+    "block_index": 1,
+    "mlp_params": 4722432,
+    "num_rows": 7936,
+    "candidates": {
+      "dense": {
+        "num_params": 590592,
+        "compression": 7.996098829648894,
+        "val_rel_mse": 0.8070388436317444,
+        "val_r2": 0.1929464340209961,
+        "recruit_start": null,
+        "recruit_final": null,
+        "recruit_delta": null,
+        "conjunction": 7.765084433231095e-07
+      },
+      "sigma-pi": {
+        "num_params": 1181184,
+        "compression": 3.998049414824447,
+        "val_rel_mse": 0.16390660405158997,
+        "val_r2": 0.8360903859138489,
+        "recruit_start": 0.1353352963924408,
+        "recruit_final": 0.12785638868808746,
+        "recruit_delta": -0.0074789077043533325,
+        "conjunction": 0.0
+      },
+      "poly": {
+        "num_params": 628224,
+        "compression": 7.517114914425428,
+        "val_rel_mse": 0.03422269597649574,
+        "val_r2": 0.9657766819000244,
+        "recruit_start": 0.1353352963924408,
+        "recruit_final": 0.09093844890594482,
+        "recruit_delta": -0.04439684748649597,
+        "conjunction": 0.04239220917224884
+      },
+      "dense (2x)": {
+        "num_params": 1181184,
+        "compression": 3.998049414824447,
+        "val_rel_mse": 0.030860373750329018,
+        "val_r2": 0.969139039516449,
+        "recruit_start": null,
+        "recruit_final": null,
+        "recruit_delta": null,
+        "conjunction": 0.9166182279586792
+      }
+    }
+  },
+  {
+    "label": "deep block",
+    "block_index": 10,
+    "mlp_params": 4722432,
+    "num_rows": 7936,
+    "candidates": {
+      "dense": {
+        "num_params": 590592,
+        "compression": 7.996098829648894,
+        "val_rel_mse": 0.2469642609357834,
+        "val_r2": 0.7528067827224731,
+        "recruit_start": null,
+        "recruit_final": null,
+        "recruit_delta": null,
+        "conjunction": 8.862618727789595e-08
+      },
+      "sigma-pi": {
+        "num_params": 1181184,
+        "compression": 3.998049414824447,
+        "val_rel_mse": 0.2500433623790741,
+        "val_r2": 0.7497248649597168,
+        "recruit_start": 0.1353352963924408,
+        "recruit_final": 0.12750044465065002,
+        "recruit_delta": -0.007834851741790771,
+        "conjunction": 0.0
+      },
+      "poly": {
+        "num_params": 628224,
+        "compression": 7.517114914425428,
+        "val_rel_mse": 0.16576871275901794,
+        "val_r2": 0.8340775966644287,
+        "recruit_start": 0.1353352963924408,
+        "recruit_final": 0.09406469762325287,
+        "recruit_delta": -0.04127059876918793,
+        "conjunction": 0.483176589012146
+      },
+      "dense (2x)": {
+        "num_params": 1181184,
+        "compression": 3.998049414824447,
+        "val_rel_mse": 0.14646095037460327,
+        "val_r2": 0.8534032702445984,
+        "recruit_start": null,
+        "recruit_final": null,
+        "recruit_delta": null,
+        "conjunction": 0.03743908554315567
+      }
+    }
+  }
+]

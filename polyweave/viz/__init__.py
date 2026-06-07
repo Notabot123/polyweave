@@ -8,6 +8,7 @@ from .plots import (
     plot_conjunction_index,
     plot_diversity_hist,
     plot_ensemble_bars,
+    plot_grouped_bars,
     plot_lines,
     plot_occlusion_heatmaps,
     plot_occlusion_overlay,
@@ -26,4 +27,5 @@ __all__ = [
     "plot_conjunction_index",
     "plot_ensemble_bars",
     "plot_diversity_hist",
+    "plot_grouped_bars",
 ]
