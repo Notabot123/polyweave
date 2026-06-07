@@ -1,0 +1,59 @@
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Packaging / build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Test / tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ---------------------------------------------------------------------------
+# Project-specific
+# ---------------------------------------------------------------------------
+
+# Datasets — large, auto-downloaded by torchvision on first run (~400 MB)
+data/
+
+# Trained teacher/student payloads — large binaries, regenerable by rerunning
+# the experiment suite. Comment this out if you want zero-retrain reproducibility
+# (ensemble.py / student_occlusion.py load from models/seed*/conv1_models.pt).
+models/
+
+# Run logs
+*.log
+
+# Legacy / scratch files staged for deletion
+archive/
+
+# ---------------------------------------------------------------------------
+# Editor / OS
+# ---------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.idea/
+.vscode/
+
+# Claude Code (local agent config). Add specific skills back later if one
+# helps others use the library, e.g.:  !.claude/skills/<useful-skill>/
+.claude/

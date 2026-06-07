@@ -1,0 +1,129 @@
+"""Tests for the activation-space distillation harness (capture + fit + metrics)."""
+
+from __future__ import annotations
+
+import torch
+import torch.nn as nn
+
+from polyweave import PolyLinear, SigmaPiLinear
+from polyweave.distill import IOCapture, collect_io, fit_layer, r2_score, relative_mse
+
+
+# ---------------------------------------------------------------------------
+# Metrics
+# ---------------------------------------------------------------------------
+
+def test_metrics_perfect_and_mean_predictors():
+    y = torch.randn(100, 4)
+    assert relative_mse(y, y) < 1e-7
+    assert r2_score(y, y) > 1 - 1e-6
+    # The global-mean predictor (matching r2_score's SS_tot) gives R^2 == 0.
+    mean_pred = y.mean().expand_as(y)
+    assert abs(r2_score(y, mean_pred)) < 1e-5
+
+
+# ---------------------------------------------------------------------------
+# Capture
+# ---------------------------------------------------------------------------
+
+def test_iocapture_collects_flattened_pairs():
+    mod = nn.Linear(16, 8)
+    with IOCapture(mod) as cap:
+        for _ in range(3):
+            mod(torch.randn(4, 5, 16))  # [B, T, D] -> flattened to rows
+    X, Y = cap.pairs()
+    assert X.shape == (3 * 4 * 5, 16)
+    assert Y.shape == (3 * 4 * 5, 8)
+    assert cap.num_rows == 60
+
+
+def test_iocapture_respects_max_rows():
+    mod = nn.Linear(8, 8)
+    with IOCapture(mod, max_rows=10) as cap:
+        for _ in range(5):
+            mod(torch.randn(8, 8))
+    X, _ = cap.pairs()
+    assert X.shape[0] == 10
+
+
+def test_collect_io_helper_matches_target():
+    mod = nn.Linear(8, 3)
+    X = torch.randn(20, 8)
+    captured_x, captured_y = collect_io(mod, lambda: mod(X))
+    assert torch.allclose(captured_x, X)
+    assert torch.allclose(captured_y, mod(X), atol=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# fit_layer
+# ---------------------------------------------------------------------------
+
+def _linear_pairs(n=2000, d_in=12, d_out=6, seed=0):
+    torch.manual_seed(seed)
+    A = torch.randn(d_out, d_in)
+    b = torch.randn(d_out)
+    X = torch.randn(n, d_in)
+    Y = X @ A.T + b
+    return X, Y
+
+
+def test_fit_layer_recovers_linear_map():
+    X, Y = _linear_pairs()
+    res = fit_layer(nn.Linear(12, 6), X, Y, steps=800, lr=1e-2, eval_every=200)
+    assert res.val_r2 > 0.99
+    assert res.val_rel_mse < 1e-2
+    assert res.num_params == 12 * 6 + 6
+    # No recruitment gate on a plain Linear.
+    assert res.recruit_curve == []
+    assert res.recruit_delta is None
+
+
+def _bilinear_pairs(n=4000, d=12, seed=1):
+    torch.manual_seed(seed)
+    u, v = torch.randn(d), torch.randn(d)
+    X = torch.randn(n, d)
+    Y = ((X @ u) * (X @ v)).unsqueeze(1)
+    return X, Y
+
+
+def test_polylinear_beats_linear_on_bilinear_target():
+    """PolyLinear's home turf: an explicit bilinear dot-product form."""
+    X, Y = _bilinear_pairs()
+    lin = fit_layer(nn.Linear(12, 1), X, Y, steps=1500, lr=1e-2, eval_every=500)
+    poly = fit_layer(PolyLinear(12, 1, rank=2), X, Y, steps=1500, lr=1e-2, eval_every=500)
+    assert lin.val_r2 < 0.3                 # linear can't model a product
+    assert poly.val_r2 > lin.val_r2 + 0.4   # explicit polynomial wins big
+
+
+def _signed_log_unit_pairs(n=4000, d=8, seed=2):
+    """A target in SigmaPiLinear's function class: a single signed-log·tanh unit.
+
+    ``SigmaPiLinear`` realises multiplication as ``exp(scale)*tanh(W·signed_log(x))``,
+    i.e. a log-space monomial — distinct from PolyLinear's bilinear forms. A bare
+    bilinear target is *not* its wheelhouse (sign coupling + tanh saturation), so
+    we test it on the structure it is actually built to represent.
+    """
+    from polyweave.ops import signed_log
+    torch.manual_seed(seed)
+    w = torch.randn(d)
+    X = torch.randn(n, d)
+    Y = (3.0 * torch.tanh(signed_log(X) @ w)).unsqueeze(1)
+    return X, Y
+
+
+def test_sigmapi_fits_its_log_space_function_class():
+    X, Y = _signed_log_unit_pairs()
+    lin = fit_layer(nn.Linear(8, 1), X, Y, steps=2500, lr=1e-2, eval_every=500)
+    sigmapi = fit_layer(SigmaPiLinear(8, 1), X, Y, steps=2500, lr=1e-2, eval_every=500)
+    assert lin.val_r2 < 0.5                  # a linear map can't see the log-space structure
+    assert sigmapi.val_r2 > 0.8              # Sigma-Pi recovers its own monomial form
+
+
+def test_recruitment_gate_tracked_for_gated_layers():
+    X, Y = _bilinear_pairs()
+    res = fit_layer(PolyLinear(12, 1, rank=2), X, Y, steps=1000, lr=1e-2, eval_every=250)
+    assert len(res.recruit_curve) >= 2
+    assert res.recruit_curve[0][0] == 0
+    # Fitting a strongly multiplicative target should recruit the gate upward.
+    assert res.recruit_delta is not None
+    assert res.recruit_delta > 0

@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "polyweave"
+version = "0.1.0"
+description = "Multiplicative (Sigma-Pi) layers and hypernetworks for weight generation."
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [{ name = "Stuart Whipp" }]
+license = { text = "MIT" }
+keywords = ["hypernetwork", "sigma-pi", "multiplicative", "pytorch", "few-shot"]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Development Status :: 3 - Alpha",
+]
+dependencies = [
+    "torch>=2.0",
+    "matplotlib>=3.5",
+]
+
+[project.optional-dependencies]
+experiments = ["torchvision>=0.15"]
+dev = ["pytest>=7.0"]
+
+[tool.setuptools.packages.find]
+include = ["polyweave*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
