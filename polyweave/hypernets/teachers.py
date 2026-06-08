@@ -87,6 +87,21 @@ class _TeacherBase(nn.Module):
         """``exp(pi_scale).mean()`` if this is a Sigma-Pi teacher, else ``None``."""
         return None if self._sigmapi is None else self._sigmapi.pi_scale_mean()
 
+    def exponent_abs_mean(self) -> Optional[float]:
+        """**Recruitment metric A** — ``mean(|exponent|)`` of the Sigma-Pi block,
+        or ``None`` for a vanilla teacher. Reads the product's SHAPE (weights only)."""
+        return None if self._sigmapi is None else self._sigmapi.exponent_abs_mean()
+
+    def pi_share(self, proto: torch.Tensor) -> Optional[float]:
+        """**Recruitment metric B** — pi-branch output share on ``proto``'s encoder
+        activations, or ``None`` for a vanilla teacher. Reads activations (noisier;
+        heavy-tail / pre-BN — see ``ConvSigmaPi2d.branch_energy``)."""
+        if self._sigmapi is None:
+            return None
+        with torch.no_grad():
+            h = self.encoder.in_conv(proto)
+        return self._sigmapi.branch_energy(h)["pi_share"]
+
 
 # ---------------------------------------------------------------------------
 # Vector-head teacher (conv filter generation, Experiment 2)

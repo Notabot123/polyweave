@@ -323,12 +323,24 @@ class RunResult:
     recovery: Dict[str, Curve] = field(default_factory=dict)
     pi_start: Optional[float] = None
     pi_final: Optional[float] = None
+    # Recruitment metric A (mean|exponent|) — the genuine-product shape diagnostic.
+    a_start: Optional[float] = None
+    a_final: Optional[float] = None
+    # Recruitment metric B (pi output share) — activation-side, noisier (heavy-tail).
+    b_start: Optional[float] = None
+    b_final: Optional[float] = None
 
     @property
     def pi_delta(self) -> Optional[float]:
         if self.pi_start is None or self.pi_final is None:
             return None
         return self.pi_final - self.pi_start
+
+    @property
+    def a_delta(self) -> Optional[float]:
+        if self.a_start is None or self.a_final is None:
+            return None
+        return self.a_final - self.a_start
 
     def to_dict(self) -> dict:
         return {
@@ -341,6 +353,11 @@ class RunResult:
             "pi_start": self.pi_start,
             "pi_final": self.pi_final,
             "pi_delta": self.pi_delta,
+            "a_start": self.a_start,
+            "a_final": self.a_final,
+            "a_delta": self.a_delta,
+            "b_start": self.b_start,
+            "b_final": self.b_final,
         }
 
     @classmethod
@@ -353,6 +370,8 @@ class RunResult:
             seed=d["seed"], label=d["label"], losses=d.get("losses", {}),
             seen_means=d["seen_means"], unseen_means=d["unseen_means"],
             recovery=recovery, pi_start=d.get("pi_start"), pi_final=d.get("pi_final"),
+            a_start=d.get("a_start"), a_final=d.get("a_final"),
+            b_start=d.get("b_start"), b_final=d.get("b_final"),
         )
 
 

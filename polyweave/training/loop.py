@@ -35,6 +35,10 @@ class TeacherTrainResult:
 
     losses: List[float] = field(default_factory=list)
     pi_scales: List[float] = field(default_factory=list)
+    # Recruitment metric A (mean|exponent|, weights only) and metric B (pi output
+    # share on the current proto). Empty for vanilla (non-Sigma-Pi) teachers.
+    exponent_abs_means: List[float] = field(default_factory=list)
+    pi_shares: List[float] = field(default_factory=list)
 
     @property
     def final_loss(self) -> Optional[float]:
@@ -43,6 +47,14 @@ class TeacherTrainResult:
     @property
     def final_pi_scale(self) -> Optional[float]:
         return self.pi_scales[-1] if self.pi_scales else None
+
+    @property
+    def final_exponent_abs_mean(self) -> Optional[float]:
+        return self.exponent_abs_means[-1] if self.exponent_abs_means else None
+
+    @property
+    def final_pi_share(self) -> Optional[float]:
+        return self.pi_shares[-1] if self.pi_shares else None
 
 
 def train_teacher(
@@ -99,6 +111,8 @@ def train_teacher(
     )
 
     pi_fn = getattr(teacher, "pi_scale_mean", None)
+    exp_fn = getattr(teacher, "exponent_abs_mean", None)  # metric A (weights only)
+    share_fn = getattr(teacher, "pi_share", None)         # metric B (needs proto)
     result = TeacherTrainResult()
 
     teacher.train()
@@ -126,10 +140,24 @@ def train_teacher(
             pv = pi_fn()
             if pv is not None:
                 result.pi_scales.append(pv)
+        if exp_fn is not None:
+            ev = exp_fn()
+            if ev is not None:
+                result.exponent_abs_means.append(ev)
+        if share_fn is not None:
+            sv = share_fn(proto)
+            if sv is not None:
+                result.pi_shares.append(sv)
 
         if log_every and step % log_every == 0:
             acc = (logits.argmax(1) == target).float().mean().item()
-            extra = f"  pi_scale_mean={result.pi_scales[-1]:.5f}" if result.pi_scales else ""
+            extra = ""
+            if result.pi_scales:
+                extra += f"  pi_scale={result.pi_scales[-1]:.5f}"
+            if result.exponent_abs_means:
+                extra += f"  A|exp|={result.exponent_abs_means[-1]:.5f}"
+            if result.pi_shares:
+                extra += f"  B_share={result.pi_shares[-1]:.4f}"
             log_fn(f"  step {step:5d}/{steps}: loss={loss.item():.4f}  acc={acc:.3f}{extra}")
 
     return result

@@ -75,6 +75,15 @@ class ConvSigmaPi2d(nn.Module):
             before exponentiation (default ``6.0``).
         signed_products: if ``True``, multiply the magnitude product by a sign-vote
             surrogate (a flagged ablation; default ``False`` is magnitude-only).
+        center_product: if ``True`` the pi branch uses ``expm1(u)`` (= product - 1)
+            instead of ``exp(u)``, so it starts at the multiplicative identity and the
+            ``pi_scale`` gate recovers a clean "volume knob" meaning (default ``False``).
+            **Caveat (conv):** this silent-init property only holds when ``u ~= 0``,
+            which needs *every* exponent ~0. With a wide receptive field
+            (``channels * k * k`` terms) the accumulated ``u`` is far from zero even at
+            init, so ``expm1`` starts large anyway and this flag is a near-no-op here —
+            it matters mainly for narrow-fan-in dense layers. (Verified null on the Q/K
+            diagnostic, 2026-06-07.)
         eps: stabiliser inside ``log(|x| + eps)`` (default ``1e-8``).
     """
 
@@ -110,6 +119,10 @@ class ConvSigmaPi2d(nn.Module):
         # Per-channel learnable amplitude gate / recruitment diagnostic.
         self.pi_scale = nn.Parameter(torch.full((channels, 1, 1), float(pi_scale_init)))
         self.bn = nn.BatchNorm2d(channels)
+        # Runtime ablation switch: when False the pi branch is zeroed in ``forward``
+        # (the block degrades to ``relu(bn(sigma))``). Lets us measure the pi branch's
+        # *functional* contribution by toggling it off on an already-trained block.
+        self.pi_enabled: bool = True
 
     def pi_weight(self) -> torch.Tensor:
         """Bounded signed log-space exponent kernel ``max_exponent * tanh(raw)``."""
@@ -153,6 +166,8 @@ class ConvSigmaPi2d(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         sigma, pi = self._branches(x)
+        if not self.pi_enabled:
+            pi = torch.zeros_like(pi)
         return F.relu(self.bn(sigma + pi))
 
     @torch.no_grad()
@@ -172,20 +187,40 @@ class ConvSigmaPi2d(nn.Module):
     def branch_energy(self, x: torch.Tensor) -> dict:
         """**Recruitment metric B** — how much each branch moves the output.
 
-        Returns ``{"sigma_rms", "pi_rms", "pi_share"}`` where ``pi_share =
-        pi_rms / (sigma_rms + pi_rms)`` on the given batch: the fraction of the
-        (pre-BN) output scale carried by the multiplicative branch. ~0 = pi branch
-        idle, toward 1 = output dominated by the product. A direct, if noisier,
-        complement to metric A (which reads the weights; this reads activations).
+        Returns ``{"sigma_rms", "pi_rms", "pi_share", "pi_effect_postbn"}``.
+
+        * ``pi_share = pi_rms / (sigma_rms + pi_rms)`` is the *pre-BN* scale share of
+          the pi branch. This OVERSTATES the branch's functional role: the geometric
+          product ``exp(u)`` is heavy-tailed, so its RMS is inflated by outliers that
+          BatchNorm then renormalises away. Read with caution.
+        * ``pi_effect_postbn`` is the honest, *post-normalisation* measure: the
+          relative L2 change in the block's actual output (``relu(bn(.))``, in eval
+          mode so running stats are used and untouched) when the pi branch is removed,
+          ``||relu(bn(sigma+pi)) - relu(bn(sigma))|| / ||relu(bn(sigma+pi))||``.
+          Because BatchNorm IS a z-score, this reflects how much the pi branch moves
+          the activations the rest of the network sees — ~0 = pi functionally idle.
         """
         sigma, pi = self._branches(x)
         sigma_rms = sigma.float().pow(2).mean().sqrt().item()
         pi_rms = pi.float().pow(2).mean().sqrt().item()
         denom = sigma_rms + pi_rms
+
+        # Post-BN ablation effect: use eval-mode BN so the SAME running stats apply to
+        # both the with-pi and without-pi outputs (and no stats are updated here).
+        was_training = self.bn.training
+        self.bn.eval()
+        y_on = F.relu(self.bn(sigma + pi)).float()
+        y_off = F.relu(self.bn(sigma)).float()
+        if was_training:
+            self.bn.train()
+        on_rms = y_on.pow(2).mean().sqrt()
+        effect = ((y_on - y_off).pow(2).mean().sqrt() / on_rms).item() if on_rms > 0 else 0.0
+
         return {
             "sigma_rms": sigma_rms,
             "pi_rms": pi_rms,
             "pi_share": (pi_rms / denom) if denom > 0 else 0.0,
+            "pi_effect_postbn": effect,
         }
 
     @torch.no_grad()

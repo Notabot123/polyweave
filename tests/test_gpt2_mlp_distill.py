@@ -98,6 +98,69 @@ def test_gpt2_mlp_distill_runs(monkeypatch, tmp_path):
     assert (tmp_path / "plots" / "raw" / "gpt2_mlp_distill.json").exists()
 
 
+class _LMOutput:
+    """Minimal stand-in for a HF ``CausalLMOutput`` (just the ``.loss`` field)."""
+
+    def __init__(self, loss: torch.Tensor) -> None:
+        self.loss = loss
+
+
+class _StubLM(_StubModel):
+    """``_StubModel`` plus an LM head, so ``model(ids, labels=ids).loss`` works —
+    enough to exercise the end-to-end perplexity swap/heal path offline."""
+
+    def __init__(self, d: int = 16, n_layer: int = 4, vocab: int = 64) -> None:
+        super().__init__(d, n_layer, vocab)
+        self.lm_head = nn.Linear(d, vocab)
+
+    def forward(self, input_ids: torch.Tensor, labels: torch.Tensor = None):
+        h = self.transformer.wte(input_ids)
+        for block in self.transformer.h:
+            h = block(h)
+        logits = self.lm_head(h)
+        if labels is None:
+            return logits
+        shift_logits = logits[:, :-1].reshape(-1, logits.size(-1))
+        shift_labels = labels[:, 1:].reshape(-1)
+        loss = nn.functional.cross_entropy(shift_logits, shift_labels)
+        return _LMOutput(loss)
+
+
+def test_gpt2_mlp_distill_perplexity(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    model = _StubLM()
+    monkeypatch.setattr(exp, "load_model", lambda cfg: (model, None))
+    monkeypatch.setattr(
+        exp, "token_batches",
+        lambda cfg, tok, split="train": [
+            torch.randint(0, 64, (cfg.batch_size, cfg.seq_len)) for _ in range(3)
+        ],
+    )
+
+    cfg = exp.Config(
+        device="cpu", block_indices=(0, 3), seq_len=8, batch_size=4,
+        max_tokens=200, poly_rank=2, equal_budget=True, steps=4, eval_every=2,
+        fit_batch_size=16, occlusion_rows=8,
+        eval_perplexity=True, ppl_max_batches=2, heal_steps=2, heal_lr=1e-4,
+    )
+    orig_mlps = [exp.mlp_of(model, i) for i in cfg.block_indices]
+    results = exp.run(cfg)
+
+    for block in results:
+        for cand in block.candidates.values():
+            assert cand.ppl_base is not None and cand.ppl_base > 0
+            assert cand.ppl_swap is not None
+            assert cand.ppl_heal is not None          # heal_steps > 0
+            assert cand.dppl_swap is not None
+
+    # The original MLPs must be restored after every swap (finally-block contract).
+    for i, orig in zip(cfg.block_indices, orig_mlps):
+        assert exp.mlp_of(model, i) is orig
+    # Healing must not have left the rest of the model with grads disabled.
+    assert all(p.requires_grad for p in model.lm_head.parameters())
+    assert (tmp_path / "plots" / f"{cfg.plot_prefix}_dppl.pdf").exists()
+
+
 def test_mlp_of_resolves_both_layouts():
     model = _StubModel(d=8, n_layer=2)
     assert exp.mlp_of(model, 0) is model.transformer.h[0].mlp

@@ -85,6 +85,12 @@ class SigmaPiLinear(nn.Module):
         signed_products: if ``True``, multiply the magnitude product by
             ``prod_i sign(x_i)`` (a true signed product) — a flagged ablation. The
             default ``False`` is magnitude-only, with sign carried by sigma.
+        center_product: if ``True`` the pi branch uses ``expm1(u)`` (= product - 1)
+            instead of ``exp(u)``, so it starts at the multiplicative identity (silent)
+            and the ``pi_scale`` gate recovers a clean "volume knob" meaning (default
+            ``False``). The silent-init property holds only when the accumulated ``u``
+            is near zero at init, i.e. for narrow fan-in; a wide ``in_features`` sums
+            many small exponents into a non-negligible ``u`` and weakens the effect.
         eps: stabiliser inside ``log(|x| + eps)`` (default ``1e-8``).
     """
 

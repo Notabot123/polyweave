@@ -1,9 +1,9 @@
 """Factorized degree-2 polynomial layer — an *explicit* multiplicative baseline.
 
-Where :class:`SigmaPiLinear` realises multiplication implicitly in log-space
-(``exp(pi_scale) * tanh(W * signed_log(x))``), this layer realises it
-*explicitly* as a low-rank bilinear (quadratic) form, in the spirit of
-Factorization Machines (Rendle 2010) and higher-order/product networks:
+Where :class:`SigmaPiLinear` realises multiplication as a *single* weighted
+geometric product (one log-space monomial ``exp(pi_scale) * prod_i |x_i|**w_i``),
+this layer realises it as a *sum* of low-rank bilinear (quadratic) terms, in the
+spirit of Factorization Machines (Rendle 2010) and higher-order/product networks:
 
     y = W x + b  +  exp(quad_scale) * A [ (U x) ⊙ (V x) ]
 
@@ -13,13 +13,21 @@ The linear branch ``W x + b`` matches ``nn.Linear``; the quadratic branch sums
 (infeasible at transformer width); the rank-``R`` factorization makes capacity a
 tunable knob and keeps the parameter count linear in ``in``.
 
+This *sum-of-products* form is the key structural contrast with the Sigma-Pi
+*single-monomial* product: a bilinear target such as ``QK^T = sum_ij q_i k_j`` is a
+sum of pairwise products, which this layer matches but a single geometric monomial
+cannot — see ``SigmaPiLinear``.
+
 ``quad_scale`` is a per-output-feature learnable gate initialised to ``-2`` — the
 same convention as ``SigmaPiLinear.pi_scale`` — so the multiplicative branch
 starts subdominant (``exp(-2) ~= 0.135``) and its growth, ``exp(quad_scale).mean()``,
 is a directly-comparable *polynomial-recruitment* diagnostic. This lets the two
 multiplicative layers be compared on equal footing: same gate, same subdominant
-init, differing only in the *form* of the multiplicative branch (signed-log·tanh
-vs raw low-rank bilinear).
+init, differing only in the *form* of the multiplicative branch (a single log-space
+geometric product vs a sum of low-rank bilinear products). Note the gate is an
+*honest* recruiter here — the quadratic branch starts near zero (small ``U,V`` init
+× the subdominant gate), so gate growth genuinely tracks recruited capacity, unlike
+``SigmaPiLinear`` whose product starts at the multiplicative identity.
 
 Like ``SigmaPiLinear`` this is a composable *layer* (raw pre-activation out, no
 baked normalisation/activation), so it works as a regression head fitting

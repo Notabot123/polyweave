@@ -30,17 +30,24 @@ Repeated for an *early* and a *deep* block to see whether recruitment / fit
 differs with depth (early FFNs are often described as more "key-value memory"
 like, deeper ones more abstractive).
 
-End-to-end perplexity after re-inserting the fitted layer into the network is the
-natural next step but is deliberately *out of scope* here (it needs model surgery
-plus a held-out text eval and more compute); it is flagged as further work.
+End-to-end perplexity (opt-in via ``cfg.eval_perplexity``) re-inserts each fitted
+layer into the live model and measures held-out LM perplexity — the downstream
+truth that activation R² only proxies. We report the zero-shot swap ΔPPL and,
+optionally (``cfg.heal_steps > 0``), the ΔPPL after *healing the swapped layer
+only* (fine-tuning just the new layer with the rest of the model frozen — a fair,
+cheap probe of the layer's standalone capacity, not full-model retraining). Use a
+real corpus for this: ``cfg.dataset="wikitext2"`` (WikiText-2 raw, cached locally)
+or ``cfg.text_paths``; the built-in demo text is for the self-contained smoke run.
 
 Run:  python -m polyweave.experiments.gpt2_mlp_distill
-(requires the optional ``transformers`` dependency: ``pip install polyweave[distill]``)
+(requires the optional ``transformers`` dependency: ``pip install polyweave[distill]``;
+WikiText-2 additionally needs ``datasets`` on first fetch)
 """
 
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
@@ -86,11 +93,19 @@ class Config:
     block_indices: Tuple[int, ...] = (1, 10)        # early, deep (gpt2 has 12)
     block_labels: Tuple[str, ...] = ("early block", "deep block")
 
+    # Corpus. ``dataset`` selects the source when ``text_paths`` is empty:
+    #   "demo"      -> built-in _DEMO_TEXT (self-contained quick run / smoke test)
+    #   "wikitext2" -> WikiText-2 raw via _wikitext.wikitext2_text (needs `datasets`
+    #                  on first fetch; cached to wikitext_cache_dir thereafter).
+    # ``text_paths`` (if set) always wins, for arbitrary custom corpora.
+    dataset: str = "demo"
+    wikitext_cache_dir: str = "data"
+
     # Activation capture.
     seq_len: int = 128
     batch_size: int = 4
     max_tokens: int = 20_000          # cap captured rows (memory/disk bound)
-    text_paths: Tuple[str, ...] = ()  # plain-text files; empty -> built-in demo text
+    text_paths: Tuple[str, ...] = ()  # plain-text files; empty -> ``dataset`` source
 
     # Candidate layers.
     poly_rank: int = 16
@@ -107,6 +122,17 @@ class Config:
 
     # Occlusion AND-signature probe.
     occlusion_rows: int = 256         # tokens used for the conjunction index
+
+    # End-to-end perplexity (re-insert the fitted layer into the live model and
+    # measure LM perplexity on a held-out split). OFF by default so the demo /
+    # offline smoke test never need a real causal-LM head. Real runs set True.
+    eval_perplexity: bool = False
+    ppl_split: str = "test"           # held-out split for PPL (wikitext2)
+    ppl_max_batches: int = 50         # cap eval batches (compute bound)
+    heal_steps: int = 0               # >0: fine-tune the SWAPPED LAYER ONLY (LM loss)
+                                      # before the post-swap PPL read (heal-the-layer,
+                                      # NOT full-model FT). Same steps for every cand.
+    heal_lr: float = 1e-4
 
     dark_plots: bool = False
     plot_prefix: str = "polyweave_gpt2_mlp_distill"
@@ -128,12 +154,36 @@ class CandidateResult:
     recruit_final: Optional[float]
     conjunction: Optional[float] = None
     recruit_curve: List[Tuple[int, float]] = field(default_factory=list)
+    # End-to-end perplexity (populated only when cfg.eval_perplexity): the live
+    # model's PPL with this candidate swapped in for the block's MLP, zero-shot and
+    # (if cfg.heal_steps>0) after healing the swapped layer. ``ppl_base`` is the
+    # untouched-model PPL, repeated per candidate for convenience.
+    ppl_base: Optional[float] = None
+    ppl_swap: Optional[float] = None
+    ppl_heal: Optional[float] = None
+    # The fitted layer itself, kept so ``run`` can swap it into the model for PPL.
+    # Not serialised (excluded from repr/compare and skipped in _save_results).
+    layer: Optional[nn.Module] = field(default=None, repr=False, compare=False)
 
     @property
     def recruit_delta(self) -> Optional[float]:
         if self.recruit_start is None or self.recruit_final is None:
             return None
         return self.recruit_final - self.recruit_start
+
+    @property
+    def dppl_swap(self) -> Optional[float]:
+        """Zero-shot perplexity increase from the swap (lower = better fit)."""
+        if self.ppl_base is None or self.ppl_swap is None:
+            return None
+        return self.ppl_swap - self.ppl_base
+
+    @property
+    def dppl_heal(self) -> Optional[float]:
+        """Perplexity increase after healing the swapped layer only."""
+        if self.ppl_base is None or self.ppl_heal is None:
+            return None
+        return self.ppl_heal - self.ppl_base
 
 
 @dataclass
@@ -165,40 +215,53 @@ def load_model(cfg: Config):
     return model, tokenizer
 
 
+def _blocks(model):
+    """Resolve the list of transformer blocks across common HF layouts."""
+    if hasattr(model, "transformer") and hasattr(model.transformer, "h"):
+        return model.transformer.h
+    if hasattr(model, "h"):
+        return model.h
+    raise AttributeError(
+        "could not locate transformer blocks; expected model.transformer.h "
+        "or model.h"
+    )
+
+
 def mlp_of(model, block_index: int) -> nn.Module:
     """Resolve a block's feed-forward submodule across common HF layouts.
 
     Handles GPT-2 (``model.transformer.h[i].mlp``) and the flatter ``model.h[i]``
     layout used by some stubs/architectures.
     """
-    if hasattr(model, "transformer") and hasattr(model.transformer, "h"):
-        blocks = model.transformer.h
-    elif hasattr(model, "h"):
-        blocks = model.h
-    else:
-        raise AttributeError(
-            "could not locate transformer blocks; expected model.transformer.h "
-            "or model.h"
-        )
-    block = blocks[block_index]
+    block = _blocks(model)[block_index]
     if not hasattr(block, "mlp"):
         raise AttributeError(f"block {block_index} has no .mlp submodule")
     return block.mlp
 
 
-def token_batches(cfg: Config, tokenizer) -> List[torch.Tensor]:
-    """Tokenise the corpus into ``[batch_size, seq_len]`` input-id tensors.
+def corpus_text(cfg: Config, split: str = "train") -> str:
+    """Resolve the raw corpus string for a split.
 
-    Concatenates all text, then chops the id stream into non-overlapping windows
-    of ``seq_len`` and packs them into batches — enough windows to cover roughly
-    ``max_tokens`` tokens.
+    Precedence: explicit ``cfg.text_paths`` (any custom files) > ``cfg.dataset``
+    (``"wikitext2"`` -> the cached WikiText-2 split) > built-in ``_DEMO_TEXT``.
+    The demo corpus is split-agnostic (the same text for every split).
     """
     if cfg.text_paths:
-        texts = [Path(p).read_text(encoding="utf-8") for p in cfg.text_paths]
-        corpus = "\n".join(texts)
-    else:
-        corpus = _DEMO_TEXT
-    ids = tokenizer(corpus, return_tensors="pt").input_ids[0]
+        return "\n".join(Path(p).read_text(encoding="utf-8") for p in cfg.text_paths)
+    if cfg.dataset == "wikitext2":
+        from ._wikitext import wikitext2_text  # local import keeps datasets optional
+        return wikitext2_text(split, cfg.wikitext_cache_dir)
+    return _DEMO_TEXT
+
+
+def token_batches(cfg: Config, tokenizer, split: str = "train") -> List[torch.Tensor]:
+    """Tokenise the corpus into ``[batch_size, seq_len]`` input-id tensors.
+
+    Concatenates the ``split`` corpus, chops the id stream into non-overlapping
+    ``seq_len`` windows and packs them into batches — enough windows to cover
+    roughly ``max_tokens`` tokens.
+    """
+    ids = tokenizer(corpus_text(cfg, split), return_tensors="pt").input_ids[0]
     n_windows = max(1, min(len(ids) // cfg.seq_len, cfg.max_tokens // cfg.seq_len))
     ids = ids[: n_windows * cfg.seq_len].reshape(n_windows, cfg.seq_len)
     return [ids[i : i + cfg.batch_size] for i in range(0, n_windows, cfg.batch_size)]
@@ -268,6 +331,119 @@ def _conjunction_for_layer(layer: nn.Module, X: torch.Tensor, cfg: Config) -> fl
 
 
 # ---------------------------------------------------------------------------
+# End-to-end perplexity (re-insert the fitted layer into the live model)
+# ---------------------------------------------------------------------------
+
+def _lm_loss(model, input_ids: torch.Tensor) -> torch.Tensor:
+    """Mean next-token cross-entropy for a causal LM on ``input_ids`` [B, T].
+
+    Uses the HF convention ``model(input_ids, labels=input_ids).loss`` (the model
+    shifts internally, averaging over the B*(T-1) predicted positions).
+    """
+    return model(input_ids, labels=input_ids).loss
+
+
+@torch.no_grad()
+def _perplexity(model, batches: List[torch.Tensor], cfg: Config) -> float:
+    """Token-weighted perplexity over ``batches`` (``exp`` of the mean LM loss)."""
+    model.eval()
+    total_loss, total_tok = 0.0, 0
+    for input_ids in batches[: cfg.ppl_max_batches]:
+        input_ids = input_ids.to(cfg.device)
+        n_pred = input_ids.shape[0] * max(input_ids.shape[1] - 1, 1)
+        total_loss += _lm_loss(model, input_ids).item() * n_pred
+        total_tok += n_pred
+    return math.exp(total_loss / max(total_tok, 1))
+
+
+def _heal_layer(
+    model, layer: nn.Module, block_index: int,
+    heal_batches: List[torch.Tensor], cfg: Config,
+) -> None:
+    """Fine-tune ONLY the swapped ``layer`` (LM loss) with the rest of the model
+    frozen — the fair, cheap "heal" that isolates the layer's representational
+    capacity without re-training the whole network. Mutates ``layer`` in place.
+    Assumes ``layer`` is already installed as ``block.mlp``.
+    """
+    frozen = [p for p in model.parameters() if p.requires_grad]
+    for p in frozen:
+        p.requires_grad_(False)
+    for p in layer.parameters():
+        p.requires_grad_(True)
+    layer.train()
+    opt = torch.optim.Adam(layer.parameters(), lr=cfg.heal_lr)
+    done = 0
+    while done < cfg.heal_steps:
+        for input_ids in heal_batches:
+            input_ids = input_ids.to(cfg.device)
+            opt.zero_grad()
+            _lm_loss(model, input_ids).backward()
+            opt.step()
+            done += 1
+            if done >= cfg.heal_steps:
+                break
+    layer.eval()
+    for p in frozen:  # restore the rest of the model's grad flags
+        p.requires_grad_(True)
+
+
+def block_swap_perplexity(
+    model, layer: nn.Module, block_index: int,
+    eval_batches: List[torch.Tensor], cfg: Config,
+    heal_batches: Optional[List[torch.Tensor]] = None,
+) -> Dict[str, Optional[float]]:
+    """Perplexity with ``layer`` swapped in for block ``block_index``'s MLP.
+
+    Returns ``{"ppl_base", "ppl_swap", "ppl_heal"}``. ``ppl_base`` is the untouched
+    model; ``ppl_swap`` is zero-shot after the swap; ``ppl_heal`` is after healing
+    the swapped layer (``None`` unless ``cfg.heal_steps > 0`` and heal batches are
+    given). The original MLP is always restored before returning.
+    """
+    blocks = _blocks(model)
+    original = blocks[block_index].mlp
+    layer = layer.to(cfg.device)
+    try:
+        ppl_base = _perplexity(model, eval_batches, cfg)
+        blocks[block_index].mlp = layer
+        layer.eval()
+        ppl_swap = _perplexity(model, eval_batches, cfg)
+        ppl_heal: Optional[float] = None
+        if cfg.heal_steps > 0 and heal_batches:
+            _heal_layer(model, layer, block_index, heal_batches, cfg)
+            ppl_heal = _perplexity(model, eval_batches, cfg)
+        return {"ppl_base": ppl_base, "ppl_swap": ppl_swap, "ppl_heal": ppl_heal}
+    finally:
+        blocks[block_index].mlp = original
+
+
+def _evaluate_perplexity(
+    model, tokenizer, results: List[BlockResult], cfg: Config,
+    heal_batches: List[torch.Tensor], log: Callable[[str], None] = print,
+) -> None:
+    """Populate each candidate's PPL fields by swapping it into the live model."""
+    eval_batches = token_batches(cfg, tokenizer, split=cfg.ppl_split)
+    log(f"\n=== end-to-end perplexity ({cfg.ppl_split} split, "
+        f"{len(eval_batches[: cfg.ppl_max_batches])} batches"
+        f"{f', heal {cfg.heal_steps} steps' if cfg.heal_steps > 0 else ''}) ===")
+    for block in results:
+        log(f"  {block.label} (block {block.block_index}):")
+        for name, cand in block.candidates.items():
+            if cand.layer is None:
+                continue
+            ppl = block_swap_perplexity(
+                model, cand.layer, block.block_index, eval_batches, cfg,
+                heal_batches=heal_batches,
+            )
+            cand.ppl_base = ppl["ppl_base"]
+            cand.ppl_swap = ppl["ppl_swap"]
+            cand.ppl_heal = ppl["ppl_heal"]
+            heal = (f" heal={cand.ppl_heal:.3f} (d{cand.dppl_heal:+.3f})"
+                    if cand.ppl_heal is not None else "")
+            log(f"    {name:<12} base={cand.ppl_base:.3f}  "
+                f"swap={cand.ppl_swap:.3f} (d{cand.dppl_swap:+.3f}){heal}")
+
+
+# ---------------------------------------------------------------------------
 # Core: distil one block
 # ---------------------------------------------------------------------------
 
@@ -309,6 +485,7 @@ def distill_block(
             recruit_final=recruit_final,
             conjunction=_conjunction_for_layer(layer, X, cfg),
             recruit_curve=res.recruit_curve,
+            layer=layer,
         )
         block.candidates[name] = cand
         gate = (
@@ -346,6 +523,11 @@ def run(cfg: Config, make_plots: bool = True) -> List[BlockResult]:
             X, Y, label=label, block_index=idx, mlp_params=mlp_params, cfg=cfg,
         ))
 
+    if cfg.eval_perplexity:
+        # Re-insert each fitted layer into the live model and measure held-out PPL.
+        # The distillation batches double as heal batches (train-split text).
+        _evaluate_perplexity(model, tokenizer, results, cfg, heal_batches=batches)
+
     _save_results(cfg, results)
     if make_plots:
         _make_plots(cfg, results)
@@ -372,6 +554,11 @@ def _save_results(cfg: Config, results: List[BlockResult]) -> None:
                     "recruit_final": c.recruit_final,
                     "recruit_delta": c.recruit_delta,
                     "conjunction": c.conjunction,
+                    "ppl_base": c.ppl_base,
+                    "ppl_swap": c.ppl_swap,
+                    "ppl_heal": c.ppl_heal,
+                    "dppl_swap": c.dppl_swap,
+                    "dppl_heal": c.dppl_heal,
                 }
                 for name, c in b.candidates.items()
             },
@@ -407,6 +594,34 @@ def _make_plots(cfg: Config, results: List[BlockResult]) -> None:
         title="Occlusion AND-signature (conjunction index)",
         ylabel="conjunction index", xlabel="GPT-2 block",
     )
+    # End-to-end perplexity increase from the swap (only if PPL was evaluated).
+    if any(c.dppl_swap is not None for b in results for c in b.candidates.values()):
+        dppl = {
+            b.label: {
+                n: (c.dppl_swap or 0.0) for n, c in b.candidates.items()
+                if c.dppl_swap is not None
+            }
+            for b in results
+        }
+        plot_grouped_bars(
+            dppl, name=f"{cfg.plot_prefix}_dppl",
+            title="Perplexity increase from MLP-block swap (zero-shot, lower=better)",
+            ylabel="Δ perplexity", xlabel="GPT-2 block",
+        )
+        if any(c.dppl_heal is not None for b in results for c in b.candidates.values()):
+            dppl_h = {
+                b.label: {
+                    n: (c.dppl_heal or 0.0) for n, c in b.candidates.items()
+                    if c.dppl_heal is not None
+                }
+                for b in results
+            }
+            plot_grouped_bars(
+                dppl_h, name=f"{cfg.plot_prefix}_dppl_heal",
+                title="Perplexity increase after healing the swapped layer",
+                ylabel="Δ perplexity", xlabel="GPT-2 block",
+            )
+
     # Recruitment-gate trajectories for the gated candidates, per block.
     for b in results:
         curves = {
