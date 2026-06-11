@@ -46,6 +46,7 @@ WikiText-2 additionally needs ``datasets`` on first fetch)
 
 from __future__ import annotations
 
+import copy
 import json
 import math
 from dataclasses import dataclass, field
@@ -55,7 +56,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 import torch
 import torch.nn as nn
 
-from ..distill import IOCapture, DistillResult, fit_layer
+from ..distill import IOCapture, DistillResult, fit_closed_form_linear, fit_layer
 from ..interpretability import conjunction_index
 from ..layers import PolyLinear, SigmaPiLinear
 from ..utils import count_params, default_device, set_seed
@@ -111,6 +112,15 @@ class Config:
     poly_rank: int = 16
     equal_budget: bool = False        # if True also fit a dense bottleneck MLP
                                       # matched to the Sigma-Pi parameter count
+    include_sigma_pi: bool = True     # if False, drop the Sigma-Pi candidate (its
+                                      # log/exp branch needs a redesign; excluded from
+                                      # the FFN-distillation paper, kept for other runs)
+    linear_closed_form: bool = False  # if True, solve the "dense" linear baseline in
+                                      # closed form (exact least squares) instead of
+                                      # training it — the true linear ceiling, immune to
+                                      # the optimiser-underfit confound on ill-conditioned
+                                      # activations. The multiplicative/depth candidates
+                                      # are still trained.
 
     # Regression.
     steps: int = 3000
@@ -150,6 +160,8 @@ class CandidateResult:
     compression: float                # original MLP params / candidate params
     val_rel_mse: float
     val_r2: float
+    val_rmse: float
+    val_cosine: float
     recruit_start: Optional[float]
     recruit_final: Optional[float]
     conjunction: Optional[float] = None
@@ -193,6 +205,20 @@ class BlockResult:
     mlp_params: int
     num_rows: int
     candidates: Dict[str, CandidateResult] = field(default_factory=dict)
+    # End-to-end perplexity references (populated only when cfg.eval_perplexity):
+    # the untouched-model PPL, and — when cfg.heal_steps>0 — the PPL after healing
+    # the ORIGINAL block's MLP with the *same* budget as the candidates. The latter
+    # is the fair "equally-adapted original" baseline: a candidate's healed ΔPPL is
+    # only meaningful against an original given the same in-domain fine-tuning, since
+    # healing on the train split adapts to a corpus the base model never saw.
+    ppl_base: Optional[float] = None
+    ppl_heal_original: Optional[float] = None
+
+    @property
+    def dppl_heal_original(self) -> Optional[float]:
+        if self.ppl_base is None or self.ppl_heal_original is None:
+            return None
+        return self.ppl_heal_original - self.ppl_base
 
 
 # ---------------------------------------------------------------------------
@@ -210,20 +236,32 @@ def load_model(cfg: Config):
     tokenizer = AutoTokenizer.from_pretrained(cfg.model_name)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
-    model = AutoModelForCausalLM.from_pretrained(cfg.model_name)
+    # Force float32: some checkpoints (e.g. Pythia) are stored in fp16, but the whole
+    # distillation pipeline (closed-form solve, fitted fp32 candidates, layer swap) is
+    # fp32 — a half-precision model would dtype-mismatch the swapped layer.
+    model = AutoModelForCausalLM.from_pretrained(cfg.model_name, torch_dtype=torch.float32)
     model.to(cfg.device).eval()
     return model, tokenizer
 
 
 def _blocks(model):
-    """Resolve the list of transformer blocks across common HF layouts."""
+    """Resolve the list of transformer blocks across common HF layouts.
+
+    Handles GPT-2 (``model.transformer.h``), the flatter ``model.h`` used by some
+    stubs, the Llama/Mistral family (``model.model.layers`` — the SwiGLU-FFN decoders),
+    and GPT-NeoX / Pythia (``model.gpt_neox.layers`` — a second GELU-FFN model).
+    """
     if hasattr(model, "transformer") and hasattr(model.transformer, "h"):
         return model.transformer.h
+    if hasattr(model, "model") and hasattr(model.model, "layers"):
+        return model.model.layers
+    if hasattr(model, "gpt_neox") and hasattr(model.gpt_neox, "layers"):
+        return model.gpt_neox.layers  # GPT-NeoX / Pythia (GELU FFN, second GELU model)
     if hasattr(model, "h"):
         return model.h
     raise AttributeError(
-        "could not locate transformer blocks; expected model.transformer.h "
-        "or model.h"
+        "could not locate transformer blocks; expected model.transformer.h, "
+        "model.model.layers, model.gpt_neox.layers, or model.h"
     )
 
 
@@ -288,9 +326,10 @@ def build_candidates(d_model: int, cfg: Config) -> Dict[str, nn.Module]:
     """The single-layer candidates that compete to replace the MLP block."""
     candidates: Dict[str, nn.Module] = {
         "dense": nn.Linear(d_model, d_model),
-        "sigma-pi": SigmaPiLinear(d_model, d_model),
-        "poly": PolyLinear(d_model, d_model, rank=cfg.poly_rank),
     }
+    if cfg.include_sigma_pi:
+        candidates["sigma-pi"] = SigmaPiLinear(d_model, d_model)
+    candidates["poly"] = PolyLinear(d_model, d_model, rank=cfg.poly_rank)
     if cfg.equal_budget:
         # A two-layer dense bottleneck whose param count matches SigmaPiLinear's
         # (~2 * d_model^2): 768->768->768 is ~2 * d^2, the same budget split
@@ -391,19 +430,22 @@ def block_swap_perplexity(
     model, layer: nn.Module, block_index: int,
     eval_batches: List[torch.Tensor], cfg: Config,
     heal_batches: Optional[List[torch.Tensor]] = None,
+    ppl_base: Optional[float] = None,
 ) -> Dict[str, Optional[float]]:
     """Perplexity with ``layer`` swapped in for block ``block_index``'s MLP.
 
     Returns ``{"ppl_base", "ppl_swap", "ppl_heal"}``. ``ppl_base`` is the untouched
-    model; ``ppl_swap`` is zero-shot after the swap; ``ppl_heal`` is after healing
-    the swapped layer (``None`` unless ``cfg.heal_steps > 0`` and heal batches are
-    given). The original MLP is always restored before returning.
+    model (pass a precomputed value to skip recomputation — it is invariant across
+    candidates); ``ppl_swap`` is zero-shot after the swap; ``ppl_heal`` is after
+    healing the swapped layer (``None`` unless ``cfg.heal_steps > 0`` and heal
+    batches are given). The original MLP is always restored before returning.
     """
     blocks = _blocks(model)
     original = blocks[block_index].mlp
     layer = layer.to(cfg.device)
     try:
-        ppl_base = _perplexity(model, eval_batches, cfg)
+        if ppl_base is None:
+            ppl_base = _perplexity(model, eval_batches, cfg)
         blocks[block_index].mlp = layer
         layer.eval()
         ppl_swap = _perplexity(model, eval_batches, cfg)
@@ -416,23 +458,56 @@ def block_swap_perplexity(
         blocks[block_index].mlp = original
 
 
+def heal_original_perplexity(
+    model, block_index: int,
+    eval_batches: List[torch.Tensor], heal_batches: List[torch.Tensor], cfg: Config,
+) -> float:
+    """PPL after healing a *copy of the original* block MLP with the heal budget.
+
+    The fair baseline for a candidate's healed ΔPPL: the original two-layer MLP
+    given the **same** in-domain fine-tuning the candidates receive. If a small
+    candidate heals to roughly this, it matches an equally-adapted original. Works
+    on a ``deepcopy`` so the live model's weights are never mutated; the original
+    submodule is always restored before returning.
+    """
+    blocks = _blocks(model)
+    original = blocks[block_index].mlp
+    clone = copy.deepcopy(original).to(cfg.device)
+    try:
+        blocks[block_index].mlp = clone
+        _heal_layer(model, clone, block_index, heal_batches, cfg)
+        return _perplexity(model, eval_batches, cfg)
+    finally:
+        blocks[block_index].mlp = original
+
+
 def _evaluate_perplexity(
     model, tokenizer, results: List[BlockResult], cfg: Config,
     heal_batches: List[torch.Tensor], log: Callable[[str], None] = print,
 ) -> None:
     """Populate each candidate's PPL fields by swapping it into the live model."""
     eval_batches = token_batches(cfg, tokenizer, split=cfg.ppl_split)
+    do_heal = cfg.heal_steps > 0 and bool(heal_batches)
+    ppl_base = _perplexity(model, eval_batches, cfg)  # invariant across candidates
     log(f"\n=== end-to-end perplexity ({cfg.ppl_split} split, "
-        f"{len(eval_batches[: cfg.ppl_max_batches])} batches"
-        f"{f', heal {cfg.heal_steps} steps' if cfg.heal_steps > 0 else ''}) ===")
+        f"{len(eval_batches[: cfg.ppl_max_batches])} batches, base PPL {ppl_base:.3f}"
+        f"{f', heal {cfg.heal_steps} steps' if do_heal else ''}) ===")
     for block in results:
-        log(f"  {block.label} (block {block.block_index}):")
+        block.ppl_base = ppl_base
+        if do_heal:
+            block.ppl_heal_original = heal_original_perplexity(
+                model, block.block_index, eval_batches, heal_batches, cfg,
+            )
+        ho = (f"  [orig healed={block.ppl_heal_original:.3f} "
+              f"(d{block.dppl_heal_original:+.3f})]"
+              if block.ppl_heal_original is not None else "")
+        log(f"  {block.label} (block {block.block_index}):{ho}")
         for name, cand in block.candidates.items():
             if cand.layer is None:
                 continue
             ppl = block_swap_perplexity(
                 model, cand.layer, block.block_index, eval_batches, cfg,
-                heal_batches=heal_batches,
+                heal_batches=heal_batches, ppl_base=ppl_base,
             )
             cand.ppl_base = ppl["ppl_base"]
             cand.ppl_swap = ppl["ppl_swap"]
@@ -467,12 +542,18 @@ def distill_block(
         f"d_model={d_model}, original MLP {mlp_params:,} params ===")
 
     for name, layer in build_candidates(d_model, cfg).items():
-        res: DistillResult = fit_layer(
-            layer, X, Y,
-            steps=cfg.steps, lr=cfg.lr, batch_size=cfg.fit_batch_size,
-            weight_decay=cfg.weight_decay, val_frac=cfg.val_frac,
-            eval_every=cfg.eval_every, device=cfg.device, seed=cfg.seed,
-        )
+        if cfg.linear_closed_form and name == "dense":
+            # Exact linear ceiling — no optimiser, no underfit confound.
+            res: DistillResult = fit_closed_form_linear(
+                layer, X, Y, val_frac=cfg.val_frac, device=cfg.device,
+            )
+        else:
+            res = fit_layer(
+                layer, X, Y,
+                steps=cfg.steps, lr=cfg.lr, batch_size=cfg.fit_batch_size,
+                weight_decay=cfg.weight_decay, val_frac=cfg.val_frac,
+                eval_every=cfg.eval_every, device=cfg.device, seed=cfg.seed,
+            )
         recruit_start = res.recruit_curve[0][1] if res.recruit_curve else None
         recruit_final = res.recruit_curve[-1][1] if res.recruit_curve else None
         cand = CandidateResult(
@@ -481,6 +562,8 @@ def distill_block(
             compression=mlp_params / max(res.num_params, 1),
             val_rel_mse=res.val_rel_mse,
             val_r2=res.val_r2,
+            val_rmse=res.val_rmse,
+            val_cosine=res.val_cosine,
             recruit_start=recruit_start,
             recruit_final=recruit_final,
             conjunction=_conjunction_for_layer(layer, X, cfg),
@@ -494,7 +577,8 @@ def distill_block(
         )
         log(f"  {name:<12} params={res.num_params:>9,}  "
             f"compress x{cand.compression:5.1f}  rel_mse={res.val_rel_mse:.4f}  "
-            f"R2={res.val_r2:.4f}  AND={cand.conjunction:.3f}{gate}")
+            f"R2={res.val_r2:.4f}  cos={res.val_cosine:.4f}  rmse={res.val_rmse:.4f}  "
+            f"AND={cand.conjunction:.3f}{gate}")
     return block
 
 
@@ -528,11 +612,61 @@ def run(cfg: Config, make_plots: bool = True) -> List[BlockResult]:
         # The distillation batches double as heal batches (train-split text).
         _evaluate_perplexity(model, tokenizer, results, cfg, heal_batches=batches)
 
+    _print_summary_table(results)
     _save_results(cfg, results)
     if make_plots:
         _make_plots(cfg, results)
     print("\nDone.")
     return results
+
+
+def _print_summary_table(results: List[BlockResult], log: Callable[[str], None] = print) -> None:
+    """One compact ASCII table: layer type x (params, compression, fidelity, PPL).
+
+    Columns: parameters, compression vs the original MLP, held-out R² / cosine /
+    RMSE, and — when perplexity was evaluated — the zero-shot swap ΔPPL and the
+    post-heal ΔPPL. Grouped by block depth so the early/deep contrast is legible.
+    ASCII only (the Windows cp1252 console can't encode ²/Δ).
+    """
+    has_ppl = any(c.dppl_swap is not None for b in results for c in b.candidates.values())
+    has_heal = any(c.dppl_heal is not None for b in results for c in b.candidates.values())
+    header = (
+        f"  {'block':<12} {'layer':<12} {'params':>10} {'compr':>7} "
+        f"{'R2':>8} {'cosine':>8} {'rmse':>9}"
+    )
+    if has_ppl:
+        header += f" {'dPPL':>9}"
+    if has_heal:
+        header += f" {'dPPL_heal':>10}"
+    log("\n" + "=" * len(header))
+    log("SUMMARY  (held-out fit; lower rel/rmse/dPPL = better, higher R2/cosine = better)")
+    log("=" * len(header))
+    log(header)
+    log("  " + "-" * (len(header) - 2))
+    for b in results:
+        for name, c in b.candidates.items():
+            row = (
+                f"  {b.label:<12} {name:<12} {c.num_params:>10,} "
+                f"x{c.compression:>5.1f} {c.val_r2:>8.4f} {c.val_cosine:>8.4f} "
+                f"{c.val_rmse:>9.4f}"
+            )
+            if has_ppl:
+                row += f" {c.dppl_swap:>+9.3f}" if c.dppl_swap is not None else f" {'-':>9}"
+            if has_heal:
+                row += f" {c.dppl_heal:>+10.3f}" if c.dppl_heal is not None else f" {'-':>10}"
+            log(row)
+        # Reference row: the original block's MLP given the same heal budget — the
+        # fair baseline a candidate's healed ΔPPL should be read against.
+        if has_heal and b.dppl_heal_original is not None:
+            row = (
+                f"  {b.label:<12} {'ORIG(heal)':<12} {b.mlp_params:>10,} "
+                f"x{1.0:>5.1f} {'-':>8} {'-':>8} {'-':>9}"
+            )
+            if has_ppl:
+                row += f" {'-':>9}"
+            row += f" {b.dppl_heal_original:>+10.3f}"
+            log(row)
+    log("=" * len(header) + "\n")
 
 
 def _save_results(cfg: Config, results: List[BlockResult]) -> None:
@@ -544,12 +678,17 @@ def _save_results(cfg: Config, results: List[BlockResult]) -> None:
             "block_index": b.block_index,
             "mlp_params": b.mlp_params,
             "num_rows": b.num_rows,
+            "ppl_base": b.ppl_base,
+            "ppl_heal_original": b.ppl_heal_original,
+            "dppl_heal_original": b.dppl_heal_original,
             "candidates": {
                 name: {
                     "num_params": c.num_params,
                     "compression": c.compression,
                     "val_rel_mse": c.val_rel_mse,
                     "val_r2": c.val_r2,
+                    "val_rmse": c.val_rmse,
+                    "val_cosine": c.val_cosine,
                     "recruit_start": c.recruit_start,
                     "recruit_final": c.recruit_final,
                     "recruit_delta": c.recruit_delta,

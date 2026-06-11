@@ -98,6 +98,76 @@ def test_gpt2_mlp_distill_runs(monkeypatch, tmp_path):
     assert (tmp_path / "plots" / "raw" / "gpt2_mlp_distill.json").exists()
 
 
+def test_include_sigma_pi_and_closed_form_linear(monkeypatch, tmp_path):
+    """The paper protocol: drop sigma-pi and solve the linear baseline in closed form.
+
+    ``include_sigma_pi=False`` removes the sigma-pi candidate; ``linear_closed_form``
+    replaces the trained ``dense`` with the exact least-squares solution. On a tiny
+    *linear* target (Y = XW + b) the closed-form baseline must be near-perfect (R^2 ~ 1)
+    regardless of the optimiser budget, which is the whole point of the change.
+    """
+    monkeypatch.chdir(tmp_path)
+
+    d, vocab = 16, 64
+    W_true = torch.randn(d, d) * 0.3
+    b_true = torch.randn(d) * 0.1
+
+    class _LinearMLP(nn.Module):  # a perfectly linear "FFN" so the ceiling is ~1.0
+        def __init__(self) -> None:
+            super().__init__()
+            self.lin = nn.Linear(d, d)
+            with torch.no_grad():
+                self.lin.weight.copy_(W_true)
+                self.lin.bias.copy_(b_true)
+
+        def forward(self, x):
+            return self.lin(x)
+
+    class _Block(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.mlp = _LinearMLP()
+
+        def forward(self, x):
+            return x + self.mlp(x)
+
+    class _Model(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.transformer = type("T", (nn.Module,), {})()
+            nn.Module.__init__(self.transformer)
+            self.transformer.wte = nn.Embedding(vocab, d)
+            self.transformer.h = nn.ModuleList([_Block() for _ in range(4)])
+
+        def forward(self, input_ids):
+            h = self.transformer.wte(input_ids)
+            for blk in self.transformer.h:
+                h = blk(h)
+            return h
+
+    monkeypatch.setattr(exp, "load_model", lambda cfg: (_Model(), None))
+    monkeypatch.setattr(
+        exp, "token_batches",
+        lambda cfg, tok, split="train": [
+            torch.randint(0, vocab, (cfg.batch_size, cfg.seq_len)) for _ in range(4)
+        ],
+    )
+
+    cfg = exp.Config(
+        device="cpu", block_indices=(0, 3), seq_len=8, batch_size=4, max_tokens=400,
+        poly_rank=2, equal_budget=True, steps=2, eval_every=1, fit_batch_size=64,
+        occlusion_rows=8, include_sigma_pi=False, linear_closed_form=True,
+    )
+    results = exp.run(cfg)
+
+    for block in results:
+        # sigma-pi dropped; the closed-form linear baseline is present.
+        assert "sigma-pi" not in block.candidates
+        assert set(block.candidates) == {"dense", "poly", "dense (2x)"}
+        # Closed form nails a linear target even with steps=2 (no optimisation used).
+        assert block.candidates["dense"].val_r2 > 0.99
+
+
 class _LMOutput:
     """Minimal stand-in for a HF ``CausalLMOutput`` (just the ``.loss`` field)."""
 
@@ -147,6 +217,10 @@ def test_gpt2_mlp_distill_perplexity(monkeypatch, tmp_path):
     results = exp.run(cfg)
 
     for block in results:
+        # The heal-original baseline is populated when heal_steps > 0.
+        assert block.ppl_base is not None and block.ppl_base > 0
+        assert block.ppl_heal_original is not None
+        assert block.dppl_heal_original is not None
         for cand in block.candidates.values():
             assert cand.ppl_base is not None and cand.ppl_base > 0
             assert cand.ppl_swap is not None
@@ -173,3 +247,31 @@ def test_mlp_of_resolves_both_layouts():
 
     flat = _Flat()
     assert exp.mlp_of(flat, 0) is flat.h[0].mlp
+
+    # Llama/Mistral layout: model.model.layers[i].mlp (SwiGLU decoders).
+    class _Inner(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.layers = nn.ModuleList([_StubBlock(8)])
+
+    class _Llama(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.model = _Inner()
+
+    llama = _Llama()
+    assert exp.mlp_of(llama, 0) is llama.model.layers[0].mlp
+
+    # GPT-NeoX / Pythia layout: model.gpt_neox.layers[i].mlp (a second GELU model).
+    class _Inner2(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.layers = nn.ModuleList([_StubBlock(8)])
+
+    class _NeoX(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.gpt_neox = _Inner2()
+
+    neox = _NeoX()
+    assert exp.mlp_of(neox, 0) is neox.gpt_neox.layers[0].mlp

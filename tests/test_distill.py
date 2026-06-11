@@ -6,7 +6,15 @@ import torch
 import torch.nn as nn
 
 from polyweave import PolyLinear, SigmaPiLinear
-from polyweave.distill import IOCapture, collect_io, fit_layer, r2_score, relative_mse
+from polyweave.distill import (
+    IOCapture,
+    collect_io,
+    cosine_similarity,
+    fit_layer,
+    r2_score,
+    relative_mse,
+    rmse,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -20,6 +28,20 @@ def test_metrics_perfect_and_mean_predictors():
     # The global-mean predictor (matching r2_score's SS_tot) gives R^2 == 0.
     mean_pred = y.mean().expand_as(y)
     assert abs(r2_score(y, mean_pred)) < 1e-5
+
+
+def test_rmse_and_cosine_metrics():
+    y = torch.randn(100, 8)
+    # Perfect prediction: zero RMSE, unit cosine.
+    assert rmse(y, y) < 1e-7
+    assert cosine_similarity(y, y) > 1 - 1e-6
+    # RMSE is sqrt of plain MSE in raw units.
+    pred = y + 0.5
+    assert abs(rmse(y, pred) - 0.5) < 1e-5
+    # Cosine reads direction only: a positive rescale leaves it ~unchanged.
+    assert cosine_similarity(y, 3.0 * y) > 1 - 1e-6
+    # Sign-flipped prediction is anti-aligned.
+    assert cosine_similarity(y, -y) < -1 + 1e-5
 
 
 # ---------------------------------------------------------------------------

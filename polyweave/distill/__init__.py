@@ -17,14 +17,17 @@ the same harness fits a synthetic target in the tests and a real FFN later.
 from __future__ import annotations
 
 from .capture import IOCapture, collect_io
-from .metrics import r2_score, relative_mse
-from .regression import DistillResult, fit_layer
+from .metrics import cosine_similarity, r2_score, relative_mse, rmse
+from .regression import DistillResult, fit_closed_form_linear, fit_layer
 
 __all__ = [
     "IOCapture",
     "collect_io",
+    "cosine_similarity",
     "r2_score",
     "relative_mse",
+    "rmse",
     "DistillResult",
     "fit_layer",
+    "fit_closed_form_linear",
 ]
