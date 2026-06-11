@@ -1,0 +1,105 @@
+% References for paper 2: "How Linear Is a Transformer Feed-Forward Block?"
+% Kept separate from references.bib (paper 1) so the two papers' bibliographies
+% never collide. Self-contained: shared entries are duplicated here with paper-2 keys.
+
+% --- Transformer feed-forward structure ---
+@inproceedings{geva2021kv,
+  title     = {Transformer Feed-Forward Layers Are Key-Value Memories},
+  author    = {Geva, Mor and Schuster, Roei and Berant, Jonathan and Levy, Omer},
+  booktitle = {Proceedings of the 2021 Conference on Empirical Methods in Natural Language Processing (EMNLP)},
+  pages     = {5484--5495},
+  year      = {2021}
+}
+
+@article{shazeer2020glu,
+  title   = {{GLU} Variants Improve Transformer},
+  author  = {Shazeer, Noam},
+  journal = {arXiv preprint arXiv:2002.05202},
+  year    = {2020}
+}
+
+% --- Conditioning / outlier features (motivates the closed-form linear baseline) ---
+@inproceedings{dettmers2022llmint8,
+  title     = {{LLM.int8()}: 8-bit Matrix Multiplication for Transformers at Scale},
+  author    = {Dettmers, Tim and Lewis, Mike and Belkada, Younes and Zettlemoyer, Luke},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  volume    = {35},
+  year      = {2022}
+}
+
+% --- Higher-order / multiplicative units and low-rank bilinear layers ---
+@book{rumelhart1986pdp,
+  title     = {Parallel Distributed Processing: Explorations in the Microstructure of Cognition, Volume 1: Foundations},
+  editor    = {Rumelhart, David E. and McClelland, James L. and {the PDP Research Group}},
+  publisher = {MIT Press},
+  year      = {1986}
+}
+
+@inproceedings{shin1991pisigma,
+  title     = {The Pi-Sigma Network: An Efficient Higher-Order Neural Network for Pattern Classification and Function Approximation},
+  author    = {Shin, Yoan and Ghosh, Joydeep},
+  booktitle = {International Joint Conference on Neural Networks (IJCNN)},
+  pages     = {13--18},
+  year      = {1991}
+}
+
+@inproceedings{jayakumar2020multiplicative,
+  title     = {Multiplicative Interactions and Where to Find Them},
+  author    = {Jayakumar, Siddhant M. and Czarnecki, Wojciech M. and Menick, Jacob and Schwarz, Jonathan and Rae, Jack and Osindero, Simon and Teh, Yee Whye and Harley, Tim and Pascanu, Razvan},
+  booktitle = {International Conference on Learning Representations (ICLR)},
+  year      = {2020}
+}
+
+@inproceedings{rendle2010fm,
+  title     = {Factorization Machines},
+  author    = {Rendle, Steffen},
+  booktitle = {IEEE International Conference on Data Mining (ICDM)},
+  pages     = {995--1000},
+  year      = {2010},
+  doi       = {10.1109/ICDM.2010.127}
+}
+
+@inproceedings{blondel2016hofm,
+  title     = {Higher-Order Factorization Machines},
+  author    = {Blondel, Mathieu and Fujino, Akinori and Ueda, Naonori and Ishihata, Masakazu},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  volume    = {29},
+  year      = {2016}
+}
+
+% --- Models & data ---
+@techreport{radford2019gpt2,
+  title       = {Language Models are Unsupervised Multitask Learners},
+  author      = {Radford, Alec and Wu, Jeffrey and Child, Rewon and Luan, David and Amodei, Dario and Sutskever, Ilya},
+  institution = {OpenAI},
+  year        = {2019}
+}
+
+@inproceedings{biderman2023pythia,
+  title     = {{Pythia}: A Suite for Analyzing Large Language Models Across Training and Scaling},
+  author    = {Biderman, Stella and Schoelkopf, Hailey and Anthony, Quentin and Bradley, Herbie and O'Brien, Kyle and Hallahan, Eric and Khan, Mohammad Aflah and Purohit, Shivanshu and Prashanth, USVSN Sai and Raff, Edward and Skowron, Aviya and Sutawika, Lintang and van der Wal, Oskar},
+  booktitle = {International Conference on Machine Learning (ICML)},
+  year      = {2023}
+}
+
+@article{touvron2023llama,
+  title   = {{LLaMA}: Open and Efficient Foundation Language Models},
+  author  = {Touvron, Hugo and Lavril, Thibaut and Izacard, Gautier and Martinet, Xavier and Lachaux, Marie-Anne and Lacroix, Timoth{\'e}e and Rozi{\`e}re, Baptiste and Goyal, Naman and Hambro, Eric and Azhar, Faisal and Rodriguez, Aurelien and Joulin, Armand and Grave, Edouard and Lample, Guillaume},
+  journal = {arXiv preprint arXiv:2302.13971},
+  year    = {2023}
+}
+
+@inproceedings{merity2017pointer,
+  title     = {Pointer Sentinel Mixture Models},
+  author    = {Merity, Stephen and Xiong, Caiming and Bradbury, James and Socher, Richard},
+  booktitle = {International Conference on Learning Representations (ICLR)},
+  year      = {2017}
+}
+
+% --- Prior work (this author) ---
+@unpublished{whipp2026pi,
+  title = {When Does the Pi Branch Fire? Multiplicative Hypernetworks for Few-Shot Weight Initialisation},
+  author = {Whipp, Stuart},
+  note  = {In preparation},
+  year  = {2026}
+}

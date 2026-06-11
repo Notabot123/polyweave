@@ -129,11 +129,12 @@ of FFN structure (and a cautionary tale about how to measure it).
   (Shazeer, 2020) are *explicitly* multiplicative; we include one (llama-160m). A central
   finding is that this nominal multiplicativity does *not* make the residual recoverable
   by a single low-order product (§5.3).
-- **Relation to prior work (this author).** *"When Does the Pi Branch Fire?"* studied a
-  multiplicative hypernetwork whose recruitment gate diagnoses multiplicative structure
-  in a weight-generation map; that target *did* benefit from a product layer, in
-  contrast to the FFN-residual targets here — sharpening that multiplicative benefit is
-  target-specific, not generic.
+- **Relation to concurrent work (this author).** A companion study (Whipp, in
+  preparation) examines a multiplicative *hypernetwork* whose recruitment gate diagnoses
+  multiplicative structure in a weight-generation map; there the target *did* benefit from
+  a product layer — in direct contrast to the FFN-residual targets here. Taken together,
+  the two results sharpen the same point: the multiplicative benefit is target-specific,
+  not generic. (This paper is self-contained; the comparison is context, not a dependency.)
 
 ## 3. Method
 
@@ -629,8 +630,9 @@ distillation.
   sum-of-bilinears that already fails to recover the residual, so we do not expect a
   stable reformulation to help on FFN residuals specifically. Its likely value lies
   elsewhere — on targets with genuine low-order *product* structure (bilinear attention
-  scores, explicit gating, or the weight-generation hypernetwork of our prior work, where
-  the recruitment gate *did* fire) rather than on the high-order FFN residual here.
+  scores, explicit gating, or the weight-generation hypernetwork of our concurrent work
+  (Whipp, in preparation), where the recruitment gate *did* fire) rather than on the
+  high-order FFN residual here.
 
 ## 9. Reproducibility
 
@@ -699,5 +701,6 @@ submission. Grouped by the role they play in the paper.)*
   models.* ICLR. (WikiText-2.)
 
 **Prior work (this author).**
-- Whipp, S. (2026). *When does the Pi branch fire?* (Multiplicative hypernetwork;
-  recruitment-gate diagnostic carried into FFN distillation here.)
+- Whipp, S. (in preparation). *When does the Pi branch fire?* (Multiplicative
+  hypernetwork; recruitment-gate diagnostic carried into FFN distillation here. Companion
+  to the present paper; cited as context, not a dependency.)
