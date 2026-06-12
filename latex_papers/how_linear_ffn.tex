@@ -19,6 +19,8 @@
 \usepackage{caption}
 \usepackage{float}
 \usepackage{calc}
+\usepackage{tikz}
+\usetikzlibrary{positioning, arrows.meta, fit, backgrounds, calc}
 
 \graphicspath{{figures/}}
 
@@ -40,39 +42,31 @@ Per-Block Linear Recoverability Is Learned, Not Architectural}
 \maketitle
 
 \begin{abstract}
-A transformer block's feed-forward network (FFN) --- two dense projections with a
-pointwise nonlinearity between them --- accounts for roughly two-thirds of the block's
-parameters, and is widely read as the site of much of a model's stored computation. We
-ask a structural question: \emph{how much of an FFN block is a linear map?} We measure it
-directly. Decomposing an FFN's input/output map as a best linear approximation plus a
-residual, we fit the \emph{exact closed-form least-squares} linear map to a block's cached
-activation pairs and call the held-out variance it explains the block's \textbf{linear
-recoverability} ($\Rlin$); the rest ($1-\Rlin$) is its \textbf{residual nonlinearity}. We
-then probe the residual with an explicit low-rank bilinear (``poly'') layer to ask how
-much of it is \emph{low-order multiplicative}. Across three pretrained decoders (GPT-2,
-Pythia-160m, llama-160m) and all twelve blocks of each, we find three things.
-\textbf{(1)~Linear recoverability is strikingly heterogeneous and jagged across depth} ---
-some blocks are near-perfectly linear ($\Rlin > 0.99$) and immediately-adjacent ones are
-strongly nonlinear ($< 0.3$), with no monotone depth trend. \textbf{(2)~It is not predicted
-by the activation function.} GPT-2 and Pythia-160m are the same size with the same GELU
-activation, yet have \emph{opposite} depth profiles (GPT-2's early block is 95\% linear,
-Pythia's only 45\%); llama's SwiGLU is different again. Two architecturally-identical GELU
-models disagreeing means linear recoverability is a property of the \emph{trained model and
-block} --- \textbf{learned, not architectural.} \textbf{(3)~The residual is mostly not
-low-order multiplicative.} A low-rank bilinear probe recovers only a few points of $R^2$
-and --- the clean negative result --- its gain does \emph{not} scale with residual
-nonlinearity (Pearson $r\approx 0$ across blocks), so the unrecovered computation is
-genuinely high-order, not a single product a position-wise layer could capture. The
-measurement has a direct practical payoff: \textbf{per-block linear recoverability is a
-targeted-compression criterion.} Where a block scores high, it can be replaced by a single
-position-wise layer at a large parameter saving --- GPT-2's early FFN by one linear map at
-\textbf{$\times 8$ fewer parameters for $+0.77$ perplexity} --- and the recoverability map
-tells you precisely which blocks admit this and which do not. Underlying all of this is a
-methodological caution: transformer activations are ill-conditioned (outlier features), so
-a \emph{trained} linear baseline can be badly under-converged and overstate nonlinearity by
-tens of points of $R^2$ --- our own first runs did exactly this. The exact closed-form
-baseline removes the confound and is what makes per-block linear recoverability a
-trustworthy, reproducible measurement.
+Transformer feed-forward networks (FFNs) are often treated as nonlinear stores of model
+computation, but the extent to which a trained FFN block is actually nonlinear is rarely
+measured directly. We study each FFN as a position-wise map from its input activations to
+its output activations, and decompose this map into the exact least-squares linear
+approximation plus a residual. The held-out variance explained by this closed-form linear
+map defines a block's \textbf{linear recoverability} ($\Rlin$), an optimiser-free
+measurement of how much of the FFN's behaviour is captured by a single affine layer.
+
+Across all twelve blocks of GPT-2, Pythia-160m, and llama-160m, linear recoverability is
+highly heterogeneous and non-monotone across depth: adjacent blocks can range from nearly
+perfectly linear ($\Rlin>0.99$) to strongly nonlinear ($\Rlin<0.3$). It is also not
+predicted by activation function. GPT-2 and Pythia-160m are same-width GELU models, yet
+exhibit sharply different recoverability profiles, showing that linear recoverability is a
+learned property of individual trained blocks rather than an architectural property. We
+then ask whether the residual is low-order multiplicative by fitting a low-rank bilinear
+probe on top of the optimal linear map. The probe recovers only a few points of $R^2$, and
+its gain is uncorrelated with residual nonlinearity, indicating that the unrecovered
+computation is not a single position-wise product but higher-order or distributed structure.
+
+Finally, the same measurement doubles as a targeted compression signal. Recoverable
+blocks admit large single-layer replacements (GPT-2's early FFN at $\times 8$ fewer
+parameters for $+0.77$ perplexity), while low-recoverability blocks flag where this is
+unsafe and it exposes a methodological pitfall: trained linear baselines can badly
+under-converge on ill-conditioned transformer activations, so we report the exact
+closed-form least-squares ceiling throughout.
 \end{abstract}
 
 \section{Introduction}
@@ -108,58 +102,59 @@ FFN structure (and a cautionary tale about how to measure it).
 
 \paragraph{Contributions.}
 \begin{enumerate}
-\item \textbf{Linear recoverability as a measurable per-block property.} A simple, cheap,
-  exact (closed-form) distillation protocol that factors the transformer out of the fitting
-  loop (it is used once, inference-only, as a feature extractor), making full per-block
-  structural surveys feasible on a 6\,GB GPU.
-\item \textbf{A per-block, per-model survey showing linearity is heterogeneous, jagged
-  across depth, and \emph{not} predicted by the activation function.} GPT-2 and Pythia-160m
-  (same size, same GELU) have opposite depth profiles; we argue linear recoverability is a
-  learned property of the specific trained block, not an architectural one. A
-  reduced-rank-regression and per-feature analysis further shows a high recoverability comes
-  in two structurally opposite kinds --- \emph{low-rank, outlier-concentrated} (effective
-  rank $\approx 1$) versus \emph{broadly linear} (effective rank in the hundreds) --- even at
-  equal $\Rlin$ (Section~\ref{sec:kinds}).
-\item \textbf{A clean characterisation of the residual.} A low-rank bilinear probe recovers
-  only a few points of $R^2$, and its gain does not correlate with residual nonlinearity
-  (Pearson $r\approx 0$ across 36 blocks) --- so the residual is genuinely high-order, not a
-  single recoverable product. Multiplicative form is neither necessary nor sufficient for
-  recoverability.
-\item \textbf{A methodological caution for activation distillation.} Transformer activations
-  are ill-conditioned (outlier features), so a \emph{trained} linear baseline can be badly
-  under-converged and overstate a target's nonlinearity by tens of points of $R^2$; the
-  exact closed-form least-squares baseline removes the confound and should be standard.
-  (Indeed an earlier version of this work reported a spurious ``early FFN is strongly
-  nonlinear'' result that was entirely this artifact; we document it as a worked warning,
-  Section~\ref{sec:survey}.)
-\item \textbf{A targeted-compression payoff.} The same per-block measurement is a practical
-  criterion for \emph{where} an FFN can be cheaply replaced: linearly-recoverable blocks
-  distil into a single position-wise layer at 4--8$\times$ parameter reduction with
-  negligible perplexity cost (GPT-2 early: $\times 8$ for $+0.77$ PPL), while
-  low-recoverability blocks flag themselves as not safely compressible this way. Because the
-  survey is heterogeneous, the gain is a \emph{selective} one --- compress the recoverable
-  blocks, leave the rest.
+\item \textbf{An exact per-block measure of FFN linear recoverability.} We introduce an
+  activation-space distillation protocol that treats each FFN as a position-wise map and
+  computes its best affine approximation by closed-form least squares. The resulting held-out
+  $R^2$, $\Rlin$, is an optimiser-free measurement of how much of a trained FFN block is
+  linearly recoverable.
+\item \textbf{A depth survey showing that recoverability is learned, not architectural.}
+  Across all twelve blocks of GPT-2, Pythia-160m, and llama-160m, $\Rlin$ is jagged and
+  non-monotone across depth. Same-size GELU models disagree sharply on which blocks are
+  linear, showing that recoverability is a property of the trained model and block rather
+  than of the activation function or FFN architecture.
+\item \textbf{A negative result on low-order multiplicative residuals.} After removing the
+  exact linear component, we probe the residual with a low-rank bilinear layer. Its gain over
+  the linear ceiling is small and uncorrelated with residual nonlinearity, indicating that
+  the unrecovered FFN computation is not well explained as a single low-order multiplicative
+  interaction.
+\item \textbf{Structural and practical consequences for compression.} We show that high
+  $\Rlin$ can arise either from low-rank, outlier-concentrated linear structure or from
+  broadly linear high-rank structure, using reduced-rank regression and per-feature $R^2$ to
+  distinguish the two (Section~\ref{sec:kinds}). The same measurement also provides a
+  selective compression criterion: linearly recoverable blocks can be replaced by much
+  smaller position-wise layers, while low-recoverability blocks flag themselves as poor
+  candidates for such replacement.
 \end{enumerate}
+
+This also motivates the use of a closed-form baseline. Transformer activations are
+ill-conditioned, so trained linear baselines can substantially understate linear
+recoverability unless they are optimised to convergence. We therefore report the exact
+least-squares ceiling throughout, and treat it as the measurement instrument against which
+trained probes are compared.
 
 \section{Background and Related Work}
 \label{sec:background}
 
 \begin{itemize}
-\item \textbf{FFNs as key--value memory} \citep{geva2021kv} motivates asking what kind of
-  computation FFNs perform and how compressible it is --- the structural question we measure
-  here per block.
+\item \textbf{FFNs as key--value memory} \citep{geva2021kv} motivates asking what kind of computation FFNs perform and how compressible it is. Here, we measure
+  per block.
 \item \textbf{Conditioning / outlier features.} Transformer activations carry
   large-magnitude outlier features \citep{dettmers2022llmint8} that make their covariance
   ill-conditioned; this is what under-converges a naively-trained linear baseline and
-  motivates the exact closed-form baseline that makes linear recoverability a trustworthy
+  motivates the exact closed-form baseline that makes linear recoverability a reproducible
   measurement (Section~\ref{sec:survey}).
-\item \textbf{Knowledge / activation distillation.} We distil a sub-module's I/O map rather
-  than logits; related in spirit to layer-wise distillation and to model ``stitching.'' Our
-  contribution is to use \emph{exact} linear distillation as a measurement of structure, not
-  only as a compression method.
-\item \textbf{Low-rank and bilinear layers.} The poly probe is a low-rank bilinear (degree-2
-  polynomial) layer \citep{rendle2010fm}; related to factorized bilinear pooling and to
-  gated linear units. We use it to interrogate the residual, not to win a compression race.
+\item \textbf{Knowledge / activation distillation and probing.} We distil a sub-module's I/O
+  map rather than logits; related in spirit to knowledge distillation
+  \citep{hinton2015distilling}, layer-wise distillation, and model ``stitching''
+  \citep{bansal2021stitching}. Measuring how much of an activation map is \emph{linearly}
+  recoverable is also in the spirit of linear probing \citep{alain2017probes}, though we probe
+  the FFN's own output map rather than a downstream label. Our contribution is to use
+  \emph{exact} linear distillation as a measurement of structure, not only as a compression
+  method.
+\item \textbf{Low-rank and bilinear / polynomial layers.} The poly probe is a low-rank bilinear
+  (degree-2 polynomial) layer \citep{rendle2010fm}; related to factorized bilinear pooling, deep
+  polynomial networks \citep{chrysos2022pnets}, and gated linear units. We use it to interrogate
+  the residual, not to win a compression race.
 \item \textbf{Higher-order / multiplicative units.} Product units and sigma-pi neurons
   \citep{rumelhart1986pdp, shin1991pisigma, jayakumar2020multiplicative} compute
   multiplicative interactions; the poly probe is one such form. (A single log-space
@@ -168,19 +163,136 @@ FFN structure (and a cautionary tale about how to measure it).
 \item \textbf{Gated FFNs (GLU/SwiGLU).} LLaMA-style FFNs
   $(xW_{\mathrm{gate}}\odot \mathrm{act}(xW_{\mathrm{up}}))W_{\mathrm{down}}$
   \citep{shazeer2020glu} are \emph{explicitly} multiplicative; we include one (llama-160m). A
-  central finding is that this nominal multiplicativity does \emph{not} make the residual
+  central finding is that this multiplicative form does \emph{not} make the residual
   recoverable by a single low-order product (Section~\ref{sec:residual}).
 \item \textbf{Relation to concurrent work (this author).} A companion study
   \citep{whipp2026pi} examines a multiplicative \emph{hypernetwork} whose recruitment gate
   diagnoses multiplicative structure in a weight-generation map; there the target \emph{did}
-  benefit from a product layer --- in direct contrast to the FFN-residual targets here. Taken
-  together, the two results sharpen the same point: the multiplicative benefit is
-  target-specific, not generic. (This paper is self-contained; the comparison is context,
-  not a dependency.)
+  benefit from a product layer, in direct contrast to the FFN-residual targets here. Taken together, the two results sharpen the same point: the multiplicative benefit is
+  target-specific, not generic. (This paper is self-contained; the comparison is context, not a dependency.)
 \end{itemize}
 
 \section{Method}
 \label{sec:method}
+
+\begin{figure}[t]
+  \centering
+  \resizebox{\linewidth}{!}{%
+  \begin{tikzpicture}[
+    >=Latex,
+    font=\small,
+    node distance=7mm and 10mm,
+    box/.style={
+      draw,
+      rounded corners,
+      align=center,
+      inner sep=5pt,
+      minimum height=9mm
+    },
+    data/.style={box, fill=blue!6, text width=24mm},
+    model/.style={box, fill=gray!8, text width=28mm, minimum height=22mm},
+    fitbox/.style={box, fill=green!8, text width=38mm},
+    metric/.style={box, fill=red!6, text width=36mm},
+    note/.style={font=\footnotesize\itshape, align=center},
+    stage/.style={font=\bfseries\footnotesize, text=black!70},
+    arr/.style={->, thick},
+    darr/.style={->, thick, dashed},
+    group/.style={
+      draw=black!25,
+      rounded corners,
+      inner sep=6pt,
+      fill=black!1
+    }
+  ]
+
+  % ------------------------------------------------------------------
+  % 1. Capture
+  % ------------------------------------------------------------------
+  \node[data] (corpus) {Corpus\\\footnotesize WikiText / prose / math};
+
+  \node[model, right=of corpus] (lm) {Frozen LM\\[1mm]
+    \begin{tikzpicture}[baseline=-0.5ex]
+      \node[draw, rounded corners, fill=orange!25,
+            inner sep=3pt, font=\footnotesize] {FFN block $\ell$};
+    \end{tikzpicture}
+  };
+
+  \node[data, right=of lm] (pairs) {Cached pairs\\[1mm]$(x,y)$};
+
+  \draw[arr] (corpus) -- (lm);
+  \draw[arr] (lm) -- node[above, note] {hook} (pairs);
+
+  \begin{scope}[on background layer]
+    \node[group, fit=(corpus)(lm)(pairs)] (g1) {};
+  \end{scope}
+  \node[stage, above=3mm of g1.north] {1. Capture FFN input--output pairs};
+
+  % ------------------------------------------------------------------
+  % 2. Decompose / fit probes
+  % ------------------------------------------------------------------
+  \node[fitbox, right=18mm of pairs, yshift=12mm] (linear)
+    {\textbf{Closed-form linear ceiling}\\[1mm]
+     $W^{*}x+b^{*}$\\
+     \footnotesize exact least squares};
+
+  \node[fitbox, below=of linear] (residual)
+    {\textbf{Residual probe}\\[1mm]
+     $\rho(x)=g(x)-(W^{*}x+b^{*})$\\
+     \footnotesize low-rank bilinear};
+
+  \node[fitbox, below=of residual] (dense)
+    {\textbf{Depth control}\\[1mm]
+     Linear $\to$ GELU $\to$ Linear\\
+     \footnotesize same-order budget};
+
+  \draw[arr] (pairs.east) to[out=15,in=180] (linear.west);
+  \draw[arr] (pairs.east) -- (residual.west);
+  \draw[arr] (pairs.east) to[out=-15,in=180] (dense.west);
+
+  \begin{scope}[on background layer]
+    \node[group, fit=(linear)(residual)(dense)] (g2) {};
+  \end{scope}
+  \node[stage, above=3mm of g2.north] {2. Fit simple position-wise replacements};
+
+  % ------------------------------------------------------------------
+  % 3. Read out
+  % ------------------------------------------------------------------
+  \node[metric, right=18mm of residual, yshift=8mm] (fitmetrics)
+    {\textbf{Fit metrics}\\[1mm]
+     \footnotesize $\Rlin$, residual gain,\\
+     \footnotesize eff.\ rank, per-feat.\ $R^2$};
+
+  \node[metric, below=of fitmetrics] (ppl)
+    {\textbf{Swap metrics}\\[1mm]
+     \footnotesize swap into live LM:\\
+     \footnotesize $\Delta$PPL};
+
+  \draw[arr] (linear.east) to[out=0,in=170] (fitmetrics.west);
+  \draw[arr] (residual.east) -- (fitmetrics.west);
+  \draw[arr] (dense.east) to[out=0,in=190] (fitmetrics.west);
+
+  \draw[darr] (linear.east) to[out=-25,in=170]
+    node[below, note, pos=0.55] {re-insert}
+    (ppl.west);
+  \draw[darr] (residual.east) to[out=-10,in=180] (ppl.west);
+  \draw[darr] (dense.east) to[out=-5,in=190] (ppl.west);
+
+  \begin{scope}[on background layer]
+    \node[group, fit=(fitmetrics)(ppl)] (g3) {};
+  \end{scope}
+  \node[stage, above=3mm of g3.north] {3. Measure structure and compression cost};
+
+  \end{tikzpicture}%
+  }
+  \caption{Distillation as measurement. A frozen language model is run once over a corpus, and a
+  forward hook caches FFN input--output activation pairs $(x,y)$ --- one row per token for a
+  chosen block. We then fit simple position-wise replacements: an exact least-squares affine map
+  giving the linear ceiling, a low-rank bilinear probe of the residual, and a two-layer dense
+  control. The fitted maps are evaluated both in activation space (recoverability $\Rlin$, residual
+  gain, effective rank, per-feature $R^2$) and by re-insertion into the live model to measure the
+  downstream perplexity change ($\Delta$PPL).}
+  \label{fig:method}
+\end{figure}
 
 \subsection{Activation-space distillation}
 \label{sec:distill}
@@ -190,7 +302,7 @@ the block's \texttt{.mlp} submodule with a forward hook, caching one (input
 $x\in\mathbb{R}^d$, output $y\in\mathbb{R}^d$) row per token. We then fit a single
 position-wise layer $f$ to minimise $\lVert f(x)-y\rVert^2$ on a held-out split. The
 transformer is never back-propagated through; all learning happens on the small standalone
-layer.
+layer. Figure~\ref{fig:method} summarises the full pipeline.
 
 \subsection{The linear/residual decomposition and the candidates}
 \label{sec:candidates}
@@ -272,18 +384,19 @@ is nearly free.
   \citep{biderman2023pythia} (GPT-NeoX, GELU FFN) --- a second, independently-trained GELU
   model that lets us test whether linearity is a GELU property --- and \textbf{llama-160m}
   (\texttt{JackFram/llama-160m} on the Hub; LLaMA architecture \citep{touvron2023llama}, SiLU
-  \textbf{SwiGLU} FFN, intermediate 3072) for a different FFN family. (A
-  \textbf{TinyLlama-1.1B} SwiGLU model is reported as a \emph{scale} probe --- see below ---
-  not as a fourth survey datapoint.)
-\item \textbf{Blocks:} all twelve blocks for the depth survey (Sections~\ref{sec:survey}--%
-  \ref{sec:kinds}); an \emph{early} block (index 1) and a \emph{deep} block (index 10) for the
-  worked-example fidelity and perplexity tables (Sections~\ref{sec:worked}--\ref{sec:ppl}).
+  \textbf{SwiGLU} FFN, intermediate 3072) for a different FFN family. A
+  \textbf{TinyLlama-1.1B} SwiGLU model is reported as a \emph{scale} probe (see below) not as a fourth survey datapoint.
+\item \textbf{Blocks:} all twelve blocks for the depth survey (Sections~\ref{sec:survey} --%
+ \ref{sec:kinds}); an \emph{early} block (index 1) and a \emph{deep} block (index 10) for the
+ fidelity and perplexity tables from the worked sample (Sections~\ref{sec:worked} -- \ref{sec:ppl}).
+  Blocks are zero-indexed throughout: ``early~(1)'' is the second transformer block and
+  ``deep~(10)'' the eleventh.
 \item \textbf{Corpus:} WikiText-2-raw \citep{merity2017pointer}. ${\sim}15$--$30$\,k token
   rows captured per block (seq len 128); held-out 20\% for fit metrics; perplexity on the
   test split. None of the models were trained on Wikipedia, so absolute PPL is higher than
-  each model's headline number --- we report \emph{deltas} against each model's own fixed base.
+  each model's headline number. We report \emph{deltas} against each model's own fixed base.
 \item \textbf{Fit:} the linear baseline is solved in \textbf{closed form} (exact least
-  squares --- the linear ceiling); the poly / 2-layer candidates are trained with AdamW
+  squares, the linear ceiling); the poly / 2-layer candidates are trained with AdamW
   (converged, verified against the ceiling). For the Section~\ref{sec:residual} residual probe
   poly's linear branch is frozen at the closed-form optimum and only its bilinear branch is
   trained, with held-out early stopping.
@@ -295,9 +408,9 @@ is nearly free.
   \texttt{no\_grad} eval-mode forward pass is deterministic) and the train/val split is a
   fixed tail, so a seed varies only layer initialisation and minibatch order. The very small
   spreads (typically $\pm 0.000$--$0.001$ $R^2$) therefore measure \emph{optimisation
-  reproducibility}, not corpus- or split-sampling uncertainty --- they say the converged fits
-  are stable, not that the numbers are immune to a change of data. We probe the larger, more
-  honest perturbations directly in Section~\ref{sec:robust}: a blocked $k$-fold
+  reproducibility}, not corpus- or split-sampling uncertainty. They say the converged fits
+  are stable, not that the numbers are immune to a change of data. We probe the larger and more
+ honest perturbations directly in Section~\ref{sec:robust}: a blocked $k$-fold
   cross-validation that gives the ceiling a real data-split CI (mean std $0.024$ $R^2$), and
   changes of corpus \emph{domain}.
 \end{itemize}
@@ -313,10 +426,10 @@ all three models (Figure~\ref{fig:depth}). Two things stand out immediately.
 
 \begin{figure}[t]
   \centering
-  \includegraphics[width=\linewidth]{depth_sweep.pdf}
+  \includegraphics[width=\linewidth]{figures/polyweave_depth_sweep_wikitext2.pdf}
   \caption{Per-block linear recoverability $\Rlin$ (exact closed-form ceiling) and zero-shot
   swap $\dppl$ across all twelve blocks of GPT-2, Pythia-160m, and llama-160m. Linearity is
-  jagged and non-monotone, and the profiles differ sharply across models --- including the
+  jagged and non-monotone, and the profiles differ sharply across models, including the
   two same-size GELU models (GPT-2, Pythia).}
   \label{fig:depth}
 \end{figure}
@@ -326,26 +439,23 @@ recoverability by block runs $0.79, 0.95, \mathbf{0.996}, 0.65, 0.58, 0.40, 0.30
 \mathbf{0.25}, 0.22, 0.27, 0.67, 0.71$ --- near-perfectly linear at block 2, strongly
 \emph{nonlinear} through the middle (blocks 5--9 sit at ${\sim}0.2$--$0.4$), then partially
 linear again at the end. Pythia runs $0.92, 0.45, 0.66, \mathbf{0.96}, 0.72, 0.74, 0.71,
-0.78, 0.82, 0.84, 0.86, \mathbf{0.99}$ --- rising toward the deep end. llama runs $0.96, 0.47,
+0.78, 0.82, 0.84, 0.86, \mathbf{0.99}$ rising toward the deep end. llama runs $0.96, 0.47,
 0.59, \mathbf{0.98}, 0.39, 0.37, 0.42, 0.44, 0.50, 0.50, 0.56, 0.90$ --- linear at the ends,
 nonlinear in the middle. There is no universal ``early-nonlinear / deep-linear'' rule; each
 model has its own jagged profile, and individual blocks can be almost perfectly linear right
 next to strongly nonlinear ones (GPT-2 block 2 at 0.996, block 8 at 0.22).
 
-\paragraph{A cautionary methodological note (why the closed-form baseline).} An earlier
-version of this study \emph{trained} the linear baseline (3\,000 SGD steps) and measured
-GPT-2's early block at $R^2 \approx 0.25$, which looked like strong early-block nonlinearity
-and a large multiplicative advantage. That was an \textbf{optimisation artifact}: GPT-2's FFN
-activations are severely ill-conditioned (input covariance condition number $\approx
-3\times10^7$; one output feature carries ${\sim}100\times$ the median variance --- the
-transformer outlier-feature phenomenon, \citealp{dettmers2022llmint8}), so a plain linear
-layer needs ${\sim}15\times$ more steps to converge. The \emph{exact closed-form} map scores
-0.95 on that same block. Every $R^2$ and $\dppl$ in this paper therefore uses the closed-form
-linear ceiling (immune to the optimiser); the factorized poly layer's main \emph{practical}
-merit is that it self-conditions and reaches the ceiling in ${\sim}3\,000$ steps where a plain
-linear layer needs ${\sim}50\,000$. Reporting the exact least-squares ceiling is what makes
-per-block linear recoverability a trustworthy, reproducible measurement rather than a
-statement about one's training budget.
+\paragraph{A cautionary methodological note (why the closed-form baseline).} A \emph{trained}
+linear baseline can badly understate recoverability on these activations. For example, after
+3\,000 SGD steps the GPT-2 early block reaches only $R^2 \approx 0.25$, even though the exact
+closed-form map scores 0.95 on the same block. The gap is an \textbf{optimisation artifact},
+not nonlinearity: GPT-2's FFN activations are severely ill-conditioned, with an input
+covariance condition number $\approx 3\times10^7$ and one output feature carrying
+${\sim}100\times$ the median variance (the transformer outlier-feature phenomenon,
+\citealp{dettmers2022llmint8}). A plain linear layer therefore needs ${\sim}15\times$ more steps
+(${\sim}50\,000$) to converge, whereas the factorized poly layer self-conditions and reaches the
+ceiling by ${\sim}3\,000$. Every $R^2$ and $\dppl$ in this paper therefore uses the closed-form
+linear ceiling, which is exact and optimiser-independent.
 
 \subsection{Linearity is learned, not architectural}
 \label{sec:learned}
@@ -372,13 +482,13 @@ opposite depth profiles} (Table~\ref{tab:learned}).
 
 GPT-2's early block is 95\% linear and a linear swap is nearly free ($+1.1$ PPL); the
 \emph{same-size, same-GELU} Pythia early block is only 45\% linear and a linear swap is
-catastrophic ($+63$ PPL). Two architecturally identical GELU models disagree on which blocks
-are linear and by how much --- so ``GELU FFNs are near-linear'' is false as a general claim.
+catastrophic ($+63$ PPL). Two same-width, same-depth GELU models disagree on which blocks
+are linear and by how much, hence ``GELU FFNs are near-linear'' is false as a general claim.
 \textbf{Linear recoverability is a property of the specific trained model and block, not of
-its architecture or activation function --- it is learned, not architectural.} The near-linear
-GPT-2 early FFN that an earlier draft built its whole story on is an outlier, not a rule.
+its architecture or activation function.} GPT-2's
+near-linear early FFN is an outlier, not a rule.
 (llama's SwiGLU, despite being \emph{explicitly} multiplicative in form, is also genuinely
-nonlinear in the early block --- its nominal multiplicativity does not make it more linearly
+nonlinear in the early block. Being multiplicative in form does not make it more linearly
 recoverable; Section~\ref{sec:residual} shows it does not make the residual recoverable
 either.)
 
@@ -395,36 +505,36 @@ negative answer.
 
 \begin{figure}[t]
   \centering
-  \includegraphics[width=0.58\linewidth]{residual_gain.pdf}
-  \caption{Residual nonlinearity ($1-\Rlin$) vs.\ the gain a low-rank bilinear probe adds over
+  \includegraphics[width=0.58\linewidth]{figures/polyweave_residual_gain_clean.pdf}
+  \caption{Residual nonlinearity ($1-\Rlin$) vs.\ the gain a rank-16 bilinear probe adds over
   the linear ceiling ($\Rpoly-\Rlin$), per block. The gain is small everywhere and
   \emph{uncorrelated} with residual nonlinearity (Pearson $r\approx 0$): the residual is not
-  low-order multiplicative.}
+  recovered by a low-rank degree-2 (bilinear) layer.}
   \label{fig:residual}
 \end{figure}
 
 \paragraph{The residual is mostly not low-order multiplicative.} The bilinear probe recovers
-only a few points of $R^2$ almost everywhere (median gain $< 0.01$; max 0.13), and --- the key
-result --- \textbf{its gain does not scale with residual nonlinearity}: across all 36 blocks
+only a few points of $R^2$ almost everywhere (median gain $< 0.01$; max 0.13), and \textbf{its gain does not scale with residual nonlinearity}: across all 36 blocks
 the Pearson correlation between $(1-\Rlin)$ and the poly gain is $\mathbf{+0.004}$, i.e.\ none.
-A block being far from its linear ceiling tells you nothing about whether a product layer can
-recover it: llama block 4 (residual 0.61) gains only $+0.004$, while llama block 1 (residual
-0.53, \emph{less} nonlinear) gains $+0.078$; GPT-2's most nonlinear blocks (residual $> 0.7$)
-gain $\le 0.008$. The handful of blocks where the probe helps at all (Pythia block 2 $+0.126$,
-llama block 1 $+0.078$, Pythia block 7 $+0.036$) are idiosyncratic, not the most-nonlinear
-ones. Within Pythia alone there is a mild positive trend ($r = +0.46$, driven by blocks 1--2),
-but it does not hold for GPT-2 ($+0.05$) or llama ($-0.01$). \textbf{So the residual
-computation FFNs perform is genuinely high-order --- not a single product a position-wise
-multiplicative layer can capture --- and ``the FFN is multiplicative in form'' (SwiGLU's gate)
-neither makes the block more linearly recoverable nor its residual more bilinearly
-recoverable.} This is the cleanest disconfirmation in the paper of the idea that multiplicative
-form predicts multiplicative recoverability.
+Residual size does not predict whether the probe helps. For instance, llama block 4 has a
+large residual (0.61) but the probe recovers almost nothing ($+0.004$), whereas llama block 1
+has a \emph{smaller} residual (0.53) yet gains $+0.078$; GPT-2's most nonlinear blocks
+(residual $> 0.7$) likewise gain $\le 0.008$. The few blocks where the probe helps at all ---
+Pythia block 2 ($+0.126$), llama block 1 ($+0.078$), and Pythia block 7 ($+0.036$) --- are
+idiosyncratic, not the most nonlinear. Within Pythia alone there is a mild positive trend ($r = +0.46$, driven by blocks 1--2),
+but it does not hold for GPT-2 ($+0.05$) or llama ($-0.01$). \textbf{So the residual is not
+captured by this low-rank degree-2 probe --- a single position-wise product does not recover
+it and ``the FFN is multiplicative in form'' (SwiGLU's gate) neither makes the block more
+linearly recoverable nor its residual more bilinearly recoverable.} This indicates that
+multiplicative form does not predict multiplicative recoverability; we interpret the
+unrecovered part as higher-order or distributed structure in the Discussion
+(Section~\ref{sec:discussion}), not as something this probe pins down.
 
 Consistent diagnostics: the closed-form linear map reads conjunction index 0.000 (purely
 additive, as it must); the 2-layer GELU bottleneck reads high ($\approx 0.90$ --- genuinely
 conjunctive); poly sits in between ($\approx 0.31$). And on a near-linear target poly's
 multiplicative-recruitment gate \emph{de-recruits} during fitting ($\exp(\texttt{quad\_scale})$
-$0.135 \to 0.055$) --- the optimiser actively shrinks the quadratic branch when there is little
+$0.135 \to 0.055$) the optimiser actively shrinks the quadratic branch when there is little
 multiplicative structure to recruit, agreeing with the near-zero gains above.
 
 \subsection{What kind of linearity? Effective rank and per-feature recoverability}
@@ -434,14 +544,14 @@ Linear recoverability $\Rlin$ is variance-weighted, so a high value can arise tw
 different ways. To tell them apart we add two scale-aware structural readouts of the same
 closed-form fit: the \textbf{effective rank} of the linear map by \emph{reduced-rank
 regression} (the smallest $k$ whose rank-$k$ least-squares map reaches 90\% of the full
-closed-form $R^2$ --- a metric-careful answer to ``how many directions does the map use?'',
+closed-form $R^2$, used as a proxy for how many directions the linear map uses,
 since the raw weight spectrum is dominated by outlier-feature scale, Section~\ref{sec:discussion})
 and the \textbf{per-feature $R^2$} (median over the $d$ output features, unweighted by
 variance). Figure~\ref{fig:kinds} plots the two against each other for all 36 blocks.
 
 \begin{figure}[t]
   \centering
-  \includegraphics[width=0.62\linewidth]{rrr_kinds.pdf}
+  \includegraphics[width=0.72\linewidth]{figures/polyweave_rrr_rank_kinds.pdf}
   \caption{Global $\Rlin$ vs.\ per-feature median $R^2$, point size $\propto$ effective rank.
   Points near the diagonal are \emph{broadly linear} (high rank); points far below the diagonal
   at high $\Rlin$ are \emph{low-rank, outlier-concentrated} (rank $\approx 1$). A high $\Rlin$
@@ -453,7 +563,7 @@ variance). Figure~\ref{fig:kinds} plots the two against each other for all 36 bl
 \begin{itemize}
 \item \emph{Low-rank, outlier-concentrated} (effective rank $\approx 1$--$6$, per-feature $R^2$
   low). GPT-2 block 2 has $\Rlin = 0.996$ but a per-feature median $R^2$ of only \textbf{0.16}
-  and an effective rank of \textbf{1} --- almost all of its \emph{variance-weighted}
+  and an effective rank of \textbf{1} .Almost all of its \emph{variance-weighted}
   recoverability lives in a single dominant output direction, and the median individual feature
   is barely linear. The same pattern holds for GPT-2 block 1 ($0.95 / 0.26 / \text{rank }1$),
   Pythia block 3 ($0.96 / 0.63 / \text{rank }1$) and block 11 ($0.99 / 0.90 / \text{rank }4$),
@@ -467,13 +577,12 @@ variance). Figure~\ref{fig:kinds} plots the two against each other for all 36 bl
 So \textbf{$\Rlin$ and effective rank are largely decoupled}: high recoverability occurs both at
 rank 1 and at rank ${\sim}380$. This \emph{reconciles} rather than undercuts
 Section~\ref{sec:survey}: GPT-2 block 2's 0.996 is real in the variance-weighted,
-downstream-relevant sense --- a linear swap costs only $+0.77$ PPL (Section~\ref{sec:ppl})
-precisely because the residual stream's high-variance direction is the one that is linear ---
-even though most of the block's features are not individually linear. The effective rank says
+downstream-relevant sense. A linear swap costs only $+0.77$ PPL (Section~\ref{sec:ppl})
+precisely because the residual stream's high-variance direction is the one that is linear, even though most of the block's features are not individually linear. The effective rank says
 what \emph{kind} of linear object the block is: a low-rank block behaves like a single (or few)
 linear ``key--value'' memory direction(s) (cf.\ \citealp{geva2021kv}) and would compress further
-still --- to a near-rank-1 linear map --- whereas a high-rank block needs the full $d^2$ budget.
-The decomposition also sharpens ``learned, not architectural'' (Section~\ref{sec:learned}):
+still (to a near-rank-1 linear map), whereas a high-rank block needs the full $d^2$ budget.
+The decomposition also sharpens our ``learned, not architecture'' claim (Section~\ref{sec:learned}):
 Pythia block 0 (broadly linear, per-feature 0.89) and GPT-2 block 1 (outlier-linear, per-feature
 0.26) have nearly the same $\Rlin$ yet opposite internal structure, so even the \emph{form} of a
 block's linearity is a learned, per-block property. (Because effective rank is measured by
@@ -543,22 +652,22 @@ is well within the cross-corpus robustness discussed in Section~\ref{sec:limitat
 
 On GPT-2's near-linear early block all candidates land together at $R^2 \approx 0.95$--$0.96$:
 poly adds $+0.002$, dense ($2\times$) $+0.006$ --- the residual is small and not bilinearly
-recoverable (Section~\ref{sec:residual}). On llama's genuinely-nonlinear early block the ceiling
+recoverable (Section~\ref{sec:residual}). On llama's genuinely nonlinear early block the ceiling
 is 0.40 and the spread is wider (poly $+0.073$, dense ($2\times$) $+0.081$), but even the 2-layer
-additive control recovers only a fraction of the residual --- consistent with the survey's
-verdict that the residual is high-order and only partly reachable by any single position-wise
-layer, multiplicative or not.
+additive control recovers only a fraction of the residual; consistent with the survey's
+verdict that the residual is not low-order-bilinear-recoverable and only partly reachable by
+any single position-wise layer, multiplicative or not.
 
 \paragraph{Multiplicative depth $\approx$ additive depth.} The poly ($2\times$) row
 (\texttt{PolyLinear $\to$ GELU $\to$ PolyLinear}, the multiplicative analog of dense ($2\times$))
 lets us ask whether \emph{adding multiplicativity to a two-layer candidate} helps beyond the
 depth itself. It does not: poly ($2\times$) matches dense ($2\times$) to within $\le 0.002$ $R^2$
 at every block (GPT-2 early 0.961 vs 0.960, GPT-2 deep 0.768 vs 0.768, llama early 0.483 vs 0.482,
-llama deep 0.588 vs 0.585) --- and at a slightly \emph{larger} budget, so the tiny edge is within
+llama deep 0.588 vs 0.585) and at a slightly \emph{larger} budget, so the tiny edge is within
 noise. The gain of the two-layer candidates over a single layer is therefore the \textbf{depth}
 (an extra hidden nonlinearity), not the \textbf{multiplicativity}: once a hidden layer is present,
 making its projections explicitly bilinear adds essentially nothing. This is the depth-axis
-counterpart of Section~\ref{sec:residual}'s width-axis result --- neither multiplicative
+counterpart of Section~\ref{sec:residual}'s width-axis result. Neither multiplicative
 \emph{width} (poly's bilinear term) nor multiplicative \emph{depth} (poly ($2\times$)) recovers
 the FFN residual that an equal budget of plain additive capacity does not.
 
@@ -572,7 +681,7 @@ closed-form linear ceiling is only $R^2 \approx 0.04$--$0.07$ \emph{globally}, a
 median output feature is predicted worse than its own mean, so the small global $R^2$ is propped
 up by a few high-variance features rather than a broadly good fit. poly adds nothing over linear
 ($\le 0.001$) and dense ($2\times$) only a little (to 0.09/0.25 global), with zero-shot swaps
-costing $+2.9$--$5.1$ PPL. We therefore treat TinyLlama as \emph{directional only} --- it confirms
+costing $+2.9$--$5.1$ PPL. We therefore treat TinyLlama as \emph{directional only}. It confirms
 that a billion-parameter SwiGLU FFN strongly resists single-position-wise-layer distillation
 (consistent with, and stronger than, llama-160m) but is not a clean survey datapoint.
 Methodologically it also shows the value of the per-feature $R^2$ as a stricter companion to the
@@ -588,7 +697,7 @@ From the depth survey:
 \item \textbf{High $R^2$ does not imply low $\dppl$.} llama block 0 has $\Rlin = 0.96$ yet a
   linear swap costs \textbf{$+76$ PPL}; block 3 has $\Rlin = 0.98$ yet costs \textbf{$+40$ PPL}.
   Pythia block 0 ($R^2$ 0.92) costs $+52$ PPL. Early blocks are \textbf{perplexity-critical}
-  almost regardless of how linearly fittable they are --- a near-perfect activation fit can still
+  almost regardless of how linearly fittable they are i.e. a near-perfect activation fit can still
   wreck the model because the residual stream is sensitive to small early perturbations.
 \item \textbf{The criticality is model-specific.} GPT-2 block 0 ($R^2$ 0.79) costs only $+2.6$
   PPL, while llama / Pythia block 0 cost $+76$ / $+52$ --- the same depth, very different
@@ -609,7 +718,7 @@ confirms the fidelity ordering downstream (Table~\ref{tab:ppl}).
   \centering
   \small
   \caption{Zero-shot and healed $\dppl$ (lower is better). \emph{orig (healed)} is the original
-  FFN given the same per-block heal budget --- the equally-adapted baseline.}
+  FFN given the same per-block heal budget as an equally-adapted baseline.}
   \label{tab:ppl}
   \begin{tabular}{lllrr}
     \toprule
@@ -657,7 +766,7 @@ to WikiText-2 (Figure~\ref{fig:corpus}).
 
 \begin{figure}[t]
   \centering
-  \includegraphics[width=0.9\linewidth]{corpus_robustness.pdf}
+  \includegraphics[width=0.9\linewidth]{figures/polyweave_corpus_robustness.pdf}
   \caption{Per-block linear recoverability $\Rlin$ across three corpus domains (colour = model,
   linestyle = corpus). The three profiles overlay closely per model, so the recoverability profile
   is a property of the model, not the corpus.}
@@ -670,9 +779,9 @@ $r = 0.97 / 0.99 / 0.95$ (GPT-2 / Pythia / llama) and the math-puzzle corpus $0.
 (Spearman $\ge 0.87$ throughout); the mean absolute shift in $R^2$ is only 0.03--0.07 (worst-case
 $\approx 0.20$ on a single block). Every qualitative claim survives intact on both out-of-domain
 corpora: the jagged non-monotone depth profiles (Section~\ref{sec:survey}), the GPT-2-vs-Pythia
-reversal that grounds ``learned, not architectural'' (Section~\ref{sec:learned}), and each model's
-near-linear and strongly nonlinear blocks. Absolute ceilings move a little --- as they must, since
-the input distribution changes --- but the \emph{shape} and the cross-model \emph{contrasts} that
+reversal that grounds ``learned structure, not defined architecture'' (Section~\ref{sec:learned}), and each model's
+near-linear and strongly nonlinear blocks. Absolute ceilings move a little since
+the input distribution changes, but the \emph{shape} and the cross-model \emph{contrasts} that
 carry the paper's claims do not.
 
 \paragraph{The downstream and multiplicative findings are corpus-robust too.} Repeating the full
@@ -704,12 +813,13 @@ every conclusion stands.
   Pythia-160m) have opposite profiles. Which FFN blocks reduce to a single linear map is a property
   of the trained network, not of ``GELU vs SwiGLU.'' This is the paper's main empirical message and
   the reason a careful (closed-form) baseline matters.
-\item \textbf{The residual is genuinely high-order --- multiplicative form does not predict
-  recoverability.} A low-rank bilinear probe recovers only a few points of $R^2$ and its gain is
-  uncorrelated with how nonlinear the block is (Pearson $r\approx 0$). An explicitly multiplicative
-  SwiGLU block is no more linearly recoverable, and its residual no more bilinearly recoverable,
-  than a GELU one. What a single position-wise layer cannot capture is real, distributed,
-  high-order computation --- not a missing product term. The same holds along the \emph{depth} axis:
+\item \textbf{The residual is not low-order multiplicative --- and multiplicative form does not
+  predict recoverability.} A low-rank bilinear probe recovers only a few points of $R^2$ and its
+  gain is uncorrelated with how nonlinear the block is (Pearson $r\approx 0$). An explicitly
+  multiplicative SwiGLU block is no more linearly recoverable, and its residual no more bilinearly
+  recoverable, than a GELU one. What a single position-wise layer cannot capture is consistent with
+  higher-order or distributed computation not a missing single product term. The same holds
+  along the \emph{depth} axis:
   a two-layer \emph{multiplicative} candidate (poly ($2\times$)) matches a two-layer \emph{additive}
   one (dense ($2\times$)) to within $\le 0.002$ $R^2$ everywhere (Section~\ref{sec:worked}), so what
   little the 2-layer candidates recover is the extra hidden nonlinearity, not the multiplicativity.
@@ -719,9 +829,9 @@ every conclusion stands.
   exists, lives on exactly those critical blocks. Studies of FFN compression should report both.
 \item \textbf{Closed-form baselines are essential for activation distillation.} Because transformer
   activations are ill-conditioned (outlier features), an under-converged trained linear baseline can
-  overstate nonlinearity by tens of points of $R^2$ and an order of magnitude of $\dppl$ --- exactly
-  the artifact that produced an earlier, wrong version of this paper's central claim. The exact
-  least-squares ceiling removes the confound and should be standard practice.
+  overstate nonlinearity by tens of points of $R^2$ and an order of magnitude of $\dppl$ --- the
+  kind of artifact that can masquerade as strong nonlinearity. The exact least-squares ceiling
+  removes the confound and should be standard practice.
 \item \textbf{``Recoverable'' comes in two structurally opposite kinds.} A high $\Rlin$ can mean a
   \emph{low-rank, outlier-concentrated} linear block (GPT-2 block 2: $\Rlin$ 0.996 but effective
   rank 1 and per-feature median $R^2$ only 0.16 --- one dominant linear direction, tying it to the
@@ -729,9 +839,9 @@ every conclusion stands.
   linear} block (Pythia block 0: $\Rlin$ 0.92, effective rank 376, per-feature 0.89). Since $\Rlin$
   and effective rank are decoupled (Section~\ref{sec:kinds}), the variance-weighted recoverability we
   headline should be read together with effective rank and per-feature $R^2$ to know \emph{what kind}
-  of linear object a block is --- the low-rank blocks resemble single linear key--value memory
+  of linear object a block is. The low-rank blocks resemble single linear key--value memory
   directions \citep{geva2021kv} and compress further still. (The raw weight spectrum alone is
-  uninformative here --- it is scale-dominated by the outlier feature --- so we measure rank by
+  uninformative here. It is scale-dominated by the outlier feature, so we measure rank by
   reduced-rank regression, not by SVD of $W^{*}$.)
 \end{itemize}
 
@@ -739,21 +849,21 @@ every conclusion stands.
 \label{sec:limitations}
 
 Base models at the small end (GPT-2, Pythia-160m, llama-160m) and modest corpora (WikiText-2,
-Gutenberg prose, and a math/logic puzzle corpus --- all English); a TinyLlama-1.1B scale probe but
+Gutenberg prose, and a math/logic puzzle corpus. All English); a TinyLlama-1.1B scale probe but
 no large-model survey; perplexity on a capped test slice; healing introduces an in-domain adaptation
 confound addressed but not eliminated by the heal-original control. The residual probe is a
-\emph{single} low-rank bilinear form --- a different basis (higher rank, other nonlinearities) might
+\emph{single} low-rank bilinear form. A different basis (higher rank, other nonlinearities) might
 recover more of the residual; our negative result is specific to low-order bilinear recovery, which
 is the natural first probe. The closed-form baseline is exact only for the \emph{linear} candidate;
 trained candidates are verified converged against it but could be optimised further.
 
-\emph{On corpus.} We measured on three domains --- WikiText-2 (encyclopedic), Gutenberg prose, and a
-math/logic puzzle corpus --- and the per-block profile is highly stable across all three (Pearson
-0.95--0.99, Section~\ref{sec:robust}), so the \textbf{linear ceiling is largely a property of the
-FFN map itself}, sampled by --- not determined by --- the input distribution. A still-larger or more
-varied corpus (WikiText-103, OpenWebText, source code) would mainly tighten absolute perplexity and
-reduce the in-domain healing confound rather than move the profile, but our domains are all English
-natural-language text. A broader \emph{model} sweep would do more than a larger corpus to chart which
+\emph{On corpus.} We measured on three domains; WikiText-2 (encyclopedic), Gutenberg prose, and a
+math/logic puzzle corpus. The per-block profile is highly stable across all three (Pearson
+0.95--0.99, Section~\ref{sec:robust}), so the \textbf{per-block profile is largely stable across the
+sampled activation distributions} rather than an artifact of any one corpus. A still-larger or more
+varied corpus (WikiText-103, OpenWebText, source code) would test whether the profile holds yet more
+broadly, and would tighten the absolute perplexity estimates and reduce the in-domain healing
+confound; our domains are so far all English natural-language text. A broader \emph{model} sweep would do more than a larger corpus to chart which
 trained networks (and which blocks) admit single-layer linear distillation.
 
 \section{Future Work}
@@ -761,7 +871,7 @@ trained networks (and which blocks) admit single-layer linear distillation.
 
 \begin{itemize}
 \item A larger model sweep (more architectures and scales) to map how the linear-recoverability
-  profile varies --- and whether ``learned, not architectural'' holds at scale.
+  profile varies and whether ``learned, not architectural'' holds at scale.
 \item \textbf{Higher-\emph{degree} single-polynomial layers.} Our poly probe is degree-2 (a sum of
   low-rank bilinears); since Section~\ref{sec:residual} shows the residual is not degree-2-recoverable,
   the natural next probe raises the \emph{degree} within one position-wise layer --- a degree-3+
@@ -772,9 +882,9 @@ trained networks (and which blocks) admit single-layer linear distillation.
   computation (recoverable only by an added nonlinearity).
 \item \textbf{Mechanism behind the low-rank / broadly-linear split (Section~\ref{sec:kinds}).} We
   \emph{measure} that some recoverable blocks are near-rank-1 (outlier-concentrated) and others
-  full-rank; \emph{why} a given block lands in one regime --- and whether the low-rank blocks
+  full-rank; \emph{why} a given block lands in one regime and whether the low-rank blocks
   correspond to identifiable key--value memories \citep{geva2021kv} or to specific token/feature
-  roles --- is open. A weighted/whitened effective rank (RRR is variance-weighted, so it inherits the
+  roles is open. A weighted/whitened effective rank (RRR is variance-weighted, so it inherits the
   outlier-weighting) would complement the per-feature view.
 \item Richer residual bases beyond polynomials (small kernel / feature maps); multi-block span
   distillation (replace several FFNs at once); and a TinyLlama / larger-SwiGLU external-validity check
@@ -784,16 +894,16 @@ trained networks (and which blocks) admit single-layer linear distillation.
   once stabilised, still added no value over the linear ceiling --- unsurprising given
   Section~\ref{sec:residual}: a \emph{single monomial} is an even more restrictive form than the
   sum-of-bilinears that already fails to recover the residual, so we do not expect a stable
-  reformulation to help on FFN residuals specifically. Its likely value lies elsewhere --- on targets
+  reformulation to help on FFN residuals specifically. Its likely value lies elsewhere; on targets
   with genuine low-order \emph{product} structure (bilinear attention scores, explicit gating, or the
   weight-generation hypernetwork of our concurrent work \citep{whipp2026pi}, where the recruitment
-  gate \emph{did} fire) rather than on the high-order FFN residual here.
+  gate \emph{did} fire) rather than on the FFN residual studied here.
 \end{itemize}
 
 \section{Reproducibility}
 \label{sec:repro}
 
-All code is in the \texttt{polyweave} library. Per-block fitting is
+All experiments are implemented in the \texttt{polyweave} codebase, which will be released with the paper. Per-block fitting is
 \texttt{polyweave/experiments/gpt2\_mlp\_distill.py}; the depth survey
 (Sections~\ref{sec:survey}--\ref{sec:residual}, Figure~\ref{fig:depth}) is
 \texttt{run\_depth\_sweep.py} (re-plot without recompute via \texttt{plot\_depth\_sweep.py}); the

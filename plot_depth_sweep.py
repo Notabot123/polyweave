@@ -61,7 +61,7 @@ def plot_from_json(json_path: Path = DEFAULT_JSON) -> None:
     axr.legend(fontsize=8, title="solid = linear, dashed = poly", title_fontsize=8)
 
     axp.set_xlabel("block index (depth)")
-    axp.set_ylabel("zero-shot ΔPPL when swapped in")
+    axp.set_ylabel("zero-shot ΔPPL after replacement")
     axp.set_title("Perplexity penalty of single-layer replacement")
     axp.grid(alpha=0.3)
     axp.set_yscale("symlog")
