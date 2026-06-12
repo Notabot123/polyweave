@@ -26,10 +26,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from ..layers.sigmapi_conv import ConvSigmaPi2d
-from ..ops.signed_log import signed_log
 
 GeneratedSigmaPi = Dict[str, torch.Tensor]
-# {"sigma_weight","sigma_bias","pi_weight","pi_bias"} — see SigmaPiConvTargetSpec.
+# {"sigma_weight","sigma_bias","pi_weight_raw"} — see SigmaPiConvTargetSpec.
 
 
 class SigmaPiStudent(nn.Module):
@@ -78,17 +77,19 @@ class SigmaPiStudent(nn.Module):
             return self.sigmapi(h)
         # Functional Sigma-Pi forward using the *generated* conv weights so
         # gradients flow back to the teacher, while ``pi_scale`` and ``bn`` stay
-        # the student's own learnable parameters (mirrors ConvSigmaPi2d.forward).
+        # the student's own learnable parameters (mirrors ConvSigmaPi2d.forward —
+        # a genuine geometric product: exp of a bounded, clamped log-space sum).
         block = self.sigmapi
         pad = self.kernel_size // 2
         sigma = F.conv2d(
             h - h.mean(dim=(-2, -1), keepdim=True),
             gen["sigma_weight"], gen["sigma_bias"], padding=pad,
         )
-        z = signed_log(h, block.eps)
-        pi = torch.exp(block.pi_scale) * torch.tanh(
-            F.conv2d(z, gen["pi_weight"], gen["pi_bias"], padding=pad)
-        )
+        log_mag = torch.log(h.abs() + block.eps)
+        log_mag = log_mag - log_mag.mean(dim=(-2, -1), keepdim=True)
+        w = block.max_exponent * torch.tanh(gen["pi_weight_raw"])
+        u = torch.clamp(F.conv2d(log_mag, w, padding=pad), -block.max_log, block.max_log)
+        pi = torch.exp(block.pi_scale) * torch.exp(u)
         return F.relu(block.bn(sigma + pi))
 
     def extract_features(

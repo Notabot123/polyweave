@@ -6,7 +6,15 @@ import torch
 import torch.nn as nn
 
 from polyweave import PolyLinear, SigmaPiLinear
-from polyweave.distill import IOCapture, collect_io, fit_layer, r2_score, relative_mse
+from polyweave.distill import (
+    IOCapture,
+    collect_io,
+    cosine_similarity,
+    fit_layer,
+    r2_score,
+    relative_mse,
+    rmse,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -20,6 +28,20 @@ def test_metrics_perfect_and_mean_predictors():
     # The global-mean predictor (matching r2_score's SS_tot) gives R^2 == 0.
     mean_pred = y.mean().expand_as(y)
     assert abs(r2_score(y, mean_pred)) < 1e-5
+
+
+def test_rmse_and_cosine_metrics():
+    y = torch.randn(100, 8)
+    # Perfect prediction: zero RMSE, unit cosine.
+    assert rmse(y, y) < 1e-7
+    assert cosine_similarity(y, y) > 1 - 1e-6
+    # RMSE is sqrt of plain MSE in raw units.
+    pred = y + 0.5
+    assert abs(rmse(y, pred) - 0.5) < 1e-5
+    # Cosine reads direction only: a positive rescale leaves it ~unchanged.
+    assert cosine_similarity(y, 3.0 * y) > 1 - 1e-6
+    # Sign-flipped prediction is anti-aligned.
+    assert cosine_similarity(y, -y) < -1 + 1e-5
 
 
 # ---------------------------------------------------------------------------
@@ -95,27 +117,31 @@ def test_polylinear_beats_linear_on_bilinear_target():
     assert poly.val_r2 > lin.val_r2 + 0.4   # explicit polynomial wins big
 
 
-def _signed_log_unit_pairs(n=4000, d=8, seed=2):
-    """A target in SigmaPiLinear's function class: a single signed-log·tanh unit.
+def _geometric_product_pairs(n=4000, d=8, seed=2):
+    """A target in SigmaPiLinear's function class: a weighted geometric product.
 
-    ``SigmaPiLinear`` realises multiplication as ``exp(scale)*tanh(W·signed_log(x))``,
-    i.e. a log-space monomial — distinct from PolyLinear's bilinear forms. A bare
-    bilinear target is *not* its wheelhouse (sign coupling + tanh saturation), so
-    we test it on the structure it is actually built to represent.
+    The rewritten ``SigmaPiLinear`` realises genuine multiplication as
+    ``exp(pi_scale) * prod_i |x_i| ** w_i`` with the inputs geometric-mean
+    normalised (so the product is scale-free). We therefore build a *scale-free*
+    monomial — exponents summing to zero, each within the layer's ``±max_exponent``
+    bound — which the layer can represent exactly (set ``w_i = a_i``). This is the
+    structure it is actually built to model, distinct from PolyLinear's bilinear
+    forms.
     """
-    from polyweave.ops import signed_log
     torch.manual_seed(seed)
-    w = torch.randn(d)
+    a = torch.empty(d).uniform_(-0.3, 0.3)
+    a = a - a.mean()                          # sum(a) == 0  ->  scale-free product
     X = torch.randn(n, d)
-    Y = (3.0 * torch.tanh(signed_log(X) @ w)).unsqueeze(1)
+    log_mag = torch.log(X.abs() + 1e-8)
+    Y = torch.exp(log_mag @ a).unsqueeze(1)   # = prod_i |x_i| ** a_i
     return X, Y
 
 
-def test_sigmapi_fits_its_log_space_function_class():
-    X, Y = _signed_log_unit_pairs()
+def test_sigmapi_fits_its_geometric_product_function_class():
+    X, Y = _geometric_product_pairs()
     lin = fit_layer(nn.Linear(8, 1), X, Y, steps=2500, lr=1e-2, eval_every=500)
     sigmapi = fit_layer(SigmaPiLinear(8, 1), X, Y, steps=2500, lr=1e-2, eval_every=500)
-    assert lin.val_r2 < 0.5                  # a linear map can't see the log-space structure
+    assert lin.val_r2 < 0.5                  # a linear map can't see the log-space product
     assert sigmapi.val_r2 > 0.8              # Sigma-Pi recovers its own monomial form
 
 

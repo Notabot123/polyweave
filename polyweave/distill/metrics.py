@@ -30,3 +30,29 @@ def r2_score(y_true: torch.Tensor, y_pred: torch.Tensor) -> float:
         torch.finfo(y_true.dtype).eps
     )
     return (1.0 - ss_res / ss_tot).item()
+
+
+@torch.no_grad()
+def rmse(y_true: torch.Tensor, y_pred: torch.Tensor) -> float:
+    """Root mean squared error in the raw activation units.
+
+    Scale-dependent (unlike ``relative_mse`` / ``r2_score``), so it is only
+    comparable across candidates fitted to the *same* target block — which is
+    exactly how the distillation experiment uses it.
+    """
+    return torch.sqrt(torch.mean((y_true - y_pred) ** 2)).item()
+
+
+@torch.no_grad()
+def cosine_similarity(y_true: torch.Tensor, y_pred: torch.Tensor) -> float:
+    """Mean per-row cosine similarity between predicted and target vectors.
+
+    Each row (token) contributes the cosine of the angle between its predicted
+    and true activation vectors; we average over rows. Complementary to R²: it
+    ignores per-token magnitude and reads only *directional* agreement, so a
+    layer can track the shape of the output manifold even where it mis-scales.
+    ``1.0`` is perfect alignment, ``0.0`` orthogonal.
+    """
+    return torch.nn.functional.cosine_similarity(
+        y_pred, y_true, dim=-1, eps=torch.finfo(y_true.dtype).eps
+    ).mean().item()

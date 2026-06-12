@@ -375,3 +375,49 @@ def plot_zeroshot_bar(
     ax.legend()
     fig.tight_layout()
     return save_figure(fig, name, plots_dir=plots_dir)
+
+
+def plot_grouped_bars(
+    groups: Dict[str, Dict[str, float]],
+    name: str,
+    title: str,
+    ylabel: str,
+    errors: Dict[str, Dict[str, float]] | None = None,
+    xlabel: str = "",
+    plots_dir: Path = DEFAULT_PLOTS_DIR,
+    figsize: Tuple[float, float] = (7.0, 4.5),
+) -> List[Path]:
+    """Grouped bar chart: one cluster of bars per group, one bar per series.
+
+    ``groups`` maps a group label (the x-axis cluster, e.g. ``"early block"`` /
+    ``"deep block"``) to a ``{series: value}`` dict (the bars within the cluster,
+    e.g. ``{"dense": .., "sigma-pi": .., "poly": ..}``). Every group is assumed to
+    carry the same series keys (their order/colour is taken from the first group).
+    Optional ``errors`` mirrors ``groups`` and draws symmetric ±error bars.
+    """
+    group_labels = list(groups.keys())
+    series = list(next(iter(groups.values())).keys()) if groups else []
+    n_groups = len(group_labels)
+    n_series = max(len(series), 1)
+    total_w = 0.8
+    w = total_w / n_series
+    x = list(range(n_groups))
+    fig, ax = plt.subplots(figsize=figsize)
+    for s_idx, s in enumerate(series):
+        offsets = [i - total_w / 2 + w * (s_idx + 0.5) for i in x]
+        heights = [groups[g].get(s, 0.0) for g in group_labels]
+        yerr = (
+            [errors[g].get(s, 0.0) for g in group_labels]
+            if errors is not None else None
+        )
+        ax.bar(offsets, heights, w, yerr=yerr, capsize=4, label=s,
+               color=OKABE_ITO[s_idx % len(OKABE_ITO)])
+    ax.set_xticks(x)
+    ax.set_xticklabels(group_labels)
+    if xlabel:
+        ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    ax.legend()
+    fig.tight_layout()
+    return save_figure(fig, name, plots_dir=plots_dir)

@@ -15,7 +15,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .metrics import r2_score, relative_mse
+from .metrics import cosine_similarity, r2_score, relative_mse, rmse
 
 
 @dataclass
@@ -26,6 +26,8 @@ class DistillResult:
     val_mse: float = float("nan")
     val_rel_mse: float = float("nan")
     val_r2: float = float("nan")
+    val_rmse: float = float("nan")
+    val_cosine: float = float("nan")
     recruit_curve: List[Tuple[int, float]] = field(default_factory=list)  # (step, gate mean)
     num_params: int = 0
 
@@ -41,6 +43,51 @@ def _recruit_fn(layer: nn.Module) -> Optional[Callable[[], float]]:
     """Return the layer's recruitment diagnostic (``pi_scale_mean``), if any."""
     fn = getattr(layer, "pi_scale_mean", None) or getattr(layer, "quad_scale_mean", None)
     return fn if callable(fn) else None
+
+
+def fit_closed_form_linear(
+    layer: nn.Module,
+    X: torch.Tensor,
+    Y: torch.Tensor,
+    *,
+    val_frac: float = 0.2,
+    device: str = "cpu",
+) -> DistillResult:
+    """Solve an affine map ``X -> Y`` in closed form (least squares) and load it into
+    ``layer`` (an ``nn.Linear``), reporting the same held-out metrics as ``fit_layer``.
+
+    This is the *exact* linear baseline: on ill-conditioned transformer activations a
+    first-order optimiser can leave a plain ``nn.Linear`` badly underfit (it may need
+    tens of thousands of steps to converge), which silently inflates the apparent
+    nonlinearity of the target. The closed-form solution removes that confound — it is
+    the true linear ceiling against which the multiplicative / depth candidates are
+    judged. Uses the same fixed tail validation split as :func:`fit_layer`, so the
+    numbers are directly comparable.
+    """
+    if not isinstance(layer, nn.Linear):
+        raise TypeError("fit_closed_form_linear expects an nn.Linear layer")
+    n = X.shape[0]
+    n_val = max(1, int(round(n * val_frac)))
+    n_train = max(1, n - n_val)
+    Xtr, Ytr = X[:n_train].double(), Y[:n_train].double()
+    Xva, Yva = X[n_train:].double(), Y[n_train:].double()
+
+    ones = torch.ones(n_train, 1, dtype=torch.float64)
+    W = torch.linalg.lstsq(torch.cat([Xtr, ones], dim=1), Ytr).solution  # [in+1, out]
+    with torch.no_grad():
+        layer.weight.copy_(W[:-1].T.to(layer.weight.dtype))
+        layer.bias.copy_(W[-1].to(layer.bias.dtype))
+
+    onev = torch.ones(Xva.shape[0], 1, dtype=torch.float64)
+    pred_va = (torch.cat([Xva, onev], dim=1) @ W).to(Yva.dtype)
+    result = DistillResult(num_params=sum(p.numel() for p in layer.parameters()))
+    result.val_mse = F.mse_loss(pred_va, Yva).item()
+    result.val_rel_mse = relative_mse(Yva, pred_va)
+    result.val_r2 = r2_score(Yva, pred_va)
+    result.val_rmse = rmse(Yva, pred_va)
+    result.val_cosine = cosine_similarity(Yva, pred_va)
+    layer.to(device)
+    return result
 
 
 def fit_layer(
@@ -77,8 +124,9 @@ def fit_layer(
 
     Returns:
         A :class:`DistillResult` with the train-loss curve, final validation
-        ``rel_mse`` / ``R²``, the recruitment-gate curve (if the layer exposes
-        ``pi_scale_mean`` / ``quad_scale_mean``), and the layer's parameter count.
+        ``rel_mse`` / ``R²`` / ``rmse`` / mean per-row ``cosine``, the
+        recruitment-gate curve (if the layer exposes ``pi_scale_mean`` /
+        ``quad_scale_mean``), and the layer's parameter count.
     """
     g = torch.Generator(device="cpu").manual_seed(seed)
     layer = layer.to(device)
@@ -131,4 +179,6 @@ def fit_layer(
     result.val_mse = F.mse_loss(pred_va, Yva).item()
     result.val_rel_mse = relative_mse(Yva, pred_va)
     result.val_r2 = r2_score(Yva, pred_va)
+    result.val_rmse = rmse(Yva, pred_va)
+    result.val_cosine = cosine_similarity(Yva, pred_va)
     return result

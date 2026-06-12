@@ -237,6 +237,10 @@ def run(cfg: Config, make_plots: bool = True) -> "_common.RunResult":
     print("=" * 60)
     pi_start: float | None = None
     pi_final: float | None = None
+    a_start: float | None = None
+    a_final: float | None = None
+    b_start: float | None = None
+    b_final: float | None = None
 
     train_loader, test_loader = _common.cifar10_loaders(cfg.batch_size)
     groups = _make_population(cfg, train_loader)
@@ -270,6 +274,15 @@ def run(cfg: Config, make_plots: bool = True) -> "_common.RunResult":
             print(f"  pi_scale: start={pi_start:.5f} "
                   f"final={pi_final:.5f} "
                   f"delta={pi_final - pi_start:+.5f}")
+        if result.exponent_abs_means:
+            a_start = result.exponent_abs_means[0]
+            a_final = result.final_exponent_abs_mean
+            print(f"  metric A (mean|exp|): start={a_start:.5f} "
+                  f"final={a_final:.5f} delta={a_final - a_start:+.5f}")
+        if result.pi_shares:
+            b_start = result.pi_shares[0]
+            b_final = result.final_pi_share
+            print(f"  metric B (pi_share) : start={b_start:.4f} final={b_final:.4f}")
 
     methods = {"random": None, "ncc": None, **teachers}
 
@@ -298,6 +311,7 @@ def run(cfg: Config, make_plots: bool = True) -> "_common.RunResult":
         seed=cfg.seed, label="FC", losses=losses,
         seen_means=seen_means, unseen_means=unseen_means, recovery=recovery,
         pi_start=pi_start, pi_final=pi_final,
+        a_start=a_start, a_final=a_final, b_start=b_start, b_final=b_final,
     )
 
 

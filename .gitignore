@@ -33,6 +33,9 @@ htmlcov/
 # Datasets — large, auto-downloaded by torchvision on first run (~400 MB)
 data/
 
+# Plots, specific to experiments/papers
+plots/
+
 # Trained teacher/student payloads — large binaries, regenerable by rerunning
 # the experiment suite. Comment this out if you want zero-retrain reproducibility
 # (ensemble.py / student_occlusion.py load from models/seed*/conv1_models.pt).
