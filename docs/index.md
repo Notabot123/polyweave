@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.png" alt="PolyWeave — higher order networks" width="540">
+</p>
+
 # PolyWeave
 
 **Multiplicative (Sigma-Pi) layers and hypernetworks for weight generation.**

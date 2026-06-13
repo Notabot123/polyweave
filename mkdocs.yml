@@ -7,6 +7,8 @@ copyright: Copyright &copy; 2026 Stuart Whipp
 
 theme:
   name: material
+  logo: assets/icon.png
+  favicon: assets/icon.png
   palette:
     - scheme: default
       primary: indigo
@@ -67,4 +69,7 @@ nav:
       - Distillation: api/distill.md
       - Interpretability: api/interpretability.md
       - Metrics: api/metrics.md
-  - Blog: blog/index.md
+  - Blog:
+      - Overview: blog/index.md
+      - Generating weights with a hypernetwork: blog/hypernetworks-on-cifar.md
+      - How linear is a transformer's FFN?: blog/how-linear-is-a-transformer-ffn.md
