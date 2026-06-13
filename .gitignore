@@ -44,8 +44,8 @@ models/
 # Run logs
 *.log
 
-# Legacy / scratch files staged for deletion
-archive/
+# mkdocs build output
+site/
 
 # ---------------------------------------------------------------------------
 # Editor / OS

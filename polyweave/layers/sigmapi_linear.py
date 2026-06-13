@@ -15,8 +15,7 @@ where ``logbar`` is the per-row mean of ``log|x|`` over the input features.
 
 i.e. a weighted geometric product (a log-space monomial that is **exponentiated**,
 unlike the deprecated ``tanh(W·signed_log(x))`` formulation which never exp'd back
-and therefore could not represent a product — see
-``archive/DEPRECATED_sigmapi_tanh_logspace.md``).
+and therefore could not represent a product).
 
 Design choices (agreed 2026-06-07), each interpretable for the paper:
 

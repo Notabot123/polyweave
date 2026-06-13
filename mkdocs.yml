@@ -1,0 +1,70 @@
+site_name: PolyWeave
+site_description: Multiplicative (Sigma-Pi) layers and hypernetworks for weight generation.
+site_url: https://Notabot123.github.io/polyweave/
+repo_url: https://github.com/Notabot123/polyweave
+repo_name: Notabot123/polyweave
+copyright: Copyright &copy; 2026 Stuart Whipp
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.tracking
+    - content.code.copy
+    - toc.follow
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [.]
+          options:
+            show_root_heading: true
+            show_source: true
+            docstring_style: google
+            members_order: source
+            separate_signature: true
+            show_signature_annotations: true
+            merge_init_into_class: true
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Concepts: concepts.md
+  - API Reference:
+      - Layers: api/layers.md
+      - Ops: api/ops.md
+      - Targets: api/targets.md
+      - Prototypes: api/prototypes.md
+      - Students: api/students.md
+      - Hypernets: api/hypernets.md
+      - Training: api/training.md
+      - Evaluation: api/evaluation.md
+      - Distillation: api/distill.md
+      - Interpretability: api/interpretability.md
+      - Metrics: api/metrics.md
+  - Blog: blog/index.md

@@ -88,8 +88,10 @@ class TinyTransformerStudent(nn.Module):
         vocab_size: token vocabulary size.
         seq_len: sequence length (query token is at the last position).
         num_classes: number of key slots / output classes.
-        d_model, n_heads, n_layers: transformer shape (uniform across students so
-            the generated Q/K target is fixed-size).
+        d_model: model width (uniform across students so the generated Q/K target
+            is fixed-size).
+        n_heads: number of attention heads.
+        n_layers: number of transformer blocks.
         activation: per-architecture pointwise activation in each block.
         emb_seed: seed for the shared, frozen token/positional embeddings.
         dropout: attention dropout (default 0).
