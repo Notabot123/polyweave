@@ -1,3 +1,8 @@
-torch
-torchvision
-matplotlib
+# polyweave dependencies are declared in pyproject.toml (the single source of truth).
+# Install the library and its optional extras with pip instead of this file:
+#
+#   pip install -e .                 # core library (torch, matplotlib)
+#   pip install -e ".[dev]"          # + pytest, pytest-cov  (run the test suite)
+#   pip install -e ".[experiments]"  # + torchvision         (run the CIFAR experiments)
+#   pip install -e ".[distill]"      # + transformers, datasets (GPT-2/LLaMA distillation)
+#   pip install -e ".[docs]"         # + mkdocs-material, mkdocstrings (build the docs)

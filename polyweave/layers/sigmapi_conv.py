@@ -16,8 +16,7 @@ so for output channel ``k`` the pi branch realises a weighted geometric product
 ``prod over (input channel c, kernel offset) |x_c|**w`` over the local receptive
 field — a true higher-order (multiplicative) response. This **exponentiates back to
 a product**, unlike the deprecated ``tanh(Conv2d(signed_log(x)))`` formulation,
-which never exp'd and therefore could not multiply (see
-``archive/DEPRECATED_sigmapi_tanh_logspace.md``).
+which never exp'd and therefore could not multiply.
 
 Design choices (agreed 2026-06-07; mirror the dense ``SigmaPiLinear``):
 

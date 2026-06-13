@@ -112,9 +112,11 @@ def fit_layer(
 
     Args:
         layer: module mapping ``[batch, in] -> [batch, out]``; trained in place.
-        X, Y: activation pairs, shapes ``[N, in]`` and ``[N, out]``.
+        X: input activations, shape ``[N, in]``.
+        Y: target activations, shape ``[N, out]``.
         steps: optimisation steps (minibatches).
-        lr, weight_decay: AdamW hyperparameters.
+        lr: AdamW learning rate.
+        weight_decay: AdamW weight decay.
         batch_size: minibatch size sampled (with replacement) from the train split.
         val_frac: fraction of rows held out for validation metrics.
         eval_every: record train loss + recruitment gate every this many steps.

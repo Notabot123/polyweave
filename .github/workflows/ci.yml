@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install CPU PyTorch + library (dev extras)
+        run: |
+          python -m pip install --upgrade pip
+          # CPU wheels keep the runner light (the default Linux torch wheel is CUDA-sized).
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          # transformers covers the lazily-imported distillation paths; `datasets` is
+          # intentionally omitted (the WikiText loader is lazy and tests never hit it).
+          pip install -e ".[dev]" transformers
+
+      - name: Run tests with coverage
+        run: pytest --cov --cov-report=term-missing --cov-fail-under=90
