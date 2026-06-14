@@ -10,6 +10,8 @@ experiments. The architecture is layered:
     students   — networks whose weights a teacher generates (CNN, transformer)
     hypernets  — full weight-generating teachers (vector- and map-head)
     training   — generic teacher-training loop + checkpoint I/O
+    logic      — differentiable fuzzy gates (AND = product; XOR in one neuron)
+    reasoning  — differentiable forward chaining over a propositional Horn KB
     viz        — publication-quality plotting (PDF, large fonts, colourblind-safe)
     metrics    — diagnostics (pi-scale, ensemble disagreement)
 
@@ -27,16 +29,18 @@ from . import (
     evaluation,
     hypernets,
     interpretability,
+    logic,
     metrics,
     ops,
     prototypes,
+    reasoning,
     students,
     targets,
     training,
     utils,
 )
 from .layers import ConvSigmaPi2d, PolyLinear, SigmaPiLinear
-from .ops import signed_log, signed_log1p
+from .ops import radbas, signed_log, signed_log1p
 
 __all__ = [
     "__version__",
@@ -49,11 +53,14 @@ __all__ = [
     "evaluation",
     "distill",
     "interpretability",
+    "logic",
+    "reasoning",
     "metrics",
     "utils",
     "ConvSigmaPi2d",
     "SigmaPiLinear",
     "PolyLinear",
+    "radbas",
     "signed_log",
     "signed_log1p",
 ]

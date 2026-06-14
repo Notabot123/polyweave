@@ -57,8 +57,13 @@ nav:
   - Home: index.md
   - Getting Started: getting-started.md
   - Concepts: concepts.md
+  - Examples:
+      - Logic gates as neurons: examples/logic-gates.md
+      - Forward chaining: examples/forward-chaining.md
   - API Reference:
       - Layers: api/layers.md
+      - Logic: api/logic.md
+      - Reasoning: api/reasoning.md
       - Ops: api/ops.md
       - Targets: api/targets.md
       - Prototypes: api/prototypes.md
