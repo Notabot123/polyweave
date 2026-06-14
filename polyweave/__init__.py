@@ -11,6 +11,7 @@ experiments. The architecture is layered:
     hypernets  — full weight-generating teachers (vector- and map-head)
     training   — generic teacher-training loop + checkpoint I/O
     logic      — differentiable fuzzy gates (AND = product; XOR in one neuron)
+    reasoning  — differentiable forward chaining over a propositional Horn KB
     viz        — publication-quality plotting (PDF, large fonts, colourblind-safe)
     metrics    — diagnostics (pi-scale, ensemble disagreement)
 
@@ -32,6 +33,7 @@ from . import (
     metrics,
     ops,
     prototypes,
+    reasoning,
     students,
     targets,
     training,
@@ -52,6 +54,7 @@ __all__ = [
     "distill",
     "interpretability",
     "logic",
+    "reasoning",
     "metrics",
     "utils",
     "ConvSigmaPi2d",
