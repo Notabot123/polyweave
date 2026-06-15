@@ -1,0 +1,102 @@
+{
+  "config": {
+    "seed": 0,
+    "train_depths": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "n_train_per_depth": 2000,
+    "eval_depths": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12
+    ],
+    "n_eval_per_depth": 200,
+    "n_distractor_rules": 8,
+    "max_slots": 64,
+    "d_model": 160,
+    "nhead": 4,
+    "nlayers": 6,
+    "dim_ff": 256,
+    "dropout": 0.1,
+    "epochs": 80,
+    "batch_size": 64,
+    "lr": 0.0003,
+    "out_prefix": "paper3_depthgen_strong",
+    "n_params": 1145698,
+    "device": "cuda"
+  },
+  "by_depth": {
+    "1": {
+      "transformer": 1.0,
+      "chaining": 1.0,
+      "n": 200
+    },
+    "2": {
+      "transformer": 0.7450000047683716,
+      "chaining": 1.0,
+      "n": 200
+    },
+    "3": {
+      "transformer": 0.6699999570846558,
+      "chaining": 1.0,
+      "n": 200
+    },
+    "4": {
+      "transformer": 0.6699999570846558,
+      "chaining": 1.0,
+      "n": 200
+    },
+    "5": {
+      "transformer": 0.6299999952316284,
+      "chaining": 1.0,
+      "n": 200
+    },
+    "6": {
+      "transformer": 0.5949999690055847,
+      "chaining": 1.0,
+      "n": 200
+    },
+    "7": {
+      "transformer": 0.550000011920929,
+      "chaining": 1.0,
+      "n": 200
+    },
+    "8": {
+      "transformer": 0.5550000071525574,
+      "chaining": 1.0,
+      "n": 200
+    },
+    "9": {
+      "transformer": 0.6100000143051147,
+      "chaining": 1.0,
+      "n": 200
+    },
+    "10": {
+      "transformer": 0.6049999594688416,
+      "chaining": 1.0,
+      "n": 200
+    },
+    "11": {
+      "transformer": 0.5199999809265137,
+      "chaining": 1.0,
+      "n": 200
+    },
+    "12": {
+      "transformer": 0.5450000166893005,
+      "chaining": 1.0,
+      "n": 200
+    }
+  }
+}
