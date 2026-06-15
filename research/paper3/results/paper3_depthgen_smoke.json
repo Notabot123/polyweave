@@ -1,0 +1,66 @@
+{
+  "config": {
+    "seed": 0,
+    "train_depths": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "n_train_per_depth": 40,
+    "eval_depths": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "n_eval_per_depth": 40,
+    "n_distractor_rules": 8,
+    "max_slots": 64,
+    "d_model": 64,
+    "nhead": 4,
+    "nlayers": 2,
+    "dim_ff": 256,
+    "dropout": 0.1,
+    "epochs": 3,
+    "batch_size": 64,
+    "lr": 0.0003,
+    "out_prefix": "paper3_depthgen_smoke",
+    "n_params": 109634,
+    "device": "cuda"
+  },
+  "by_depth": {
+    "1": {
+      "transformer": 0.4749999940395355,
+      "chaining": 1.0,
+      "n": 40
+    },
+    "2": {
+      "transformer": 0.574999988079071,
+      "chaining": 1.0,
+      "n": 40
+    },
+    "3": {
+      "transformer": 0.5250000357627869,
+      "chaining": 1.0,
+      "n": 40
+    },
+    "4": {
+      "transformer": 0.5250000357627869,
+      "chaining": 1.0,
+      "n": 40
+    },
+    "5": {
+      "transformer": 0.574999988079071,
+      "chaining": 1.0,
+      "n": 40
+    },
+    "6": {
+      "transformer": 0.574999988079071,
+      "chaining": 1.0,
+      "n": 40
+    }
+  }
+}

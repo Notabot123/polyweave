@@ -77,4 +77,5 @@ nav:
   - Blog:
       - Overview: blog/index.md
       - Generating weights with a hypernetwork: blog/hypernetworks-on-cifar.md
+      - Logic, in products: blog/differentiable-logic.md
       - How linear is a transformer's FFN?: blog/how-linear-is-a-transformer-ffn.md

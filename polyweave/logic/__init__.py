@@ -32,9 +32,10 @@ from .gates import (
     fuzzy_xnor,
     fuzzy_xor,
 )
+from .literals import SoftRuleLayer, SoftSignedLiteral
 
 __all__ = [
-    # functional
+    # functional gates
     "fuzzy_not",
     "fuzzy_and",
     "fuzzy_or",
@@ -42,7 +43,7 @@ __all__ = [
     "fuzzy_nor",
     "fuzzy_xor",
     "fuzzy_xnor",
-    # modules
+    # module gates
     "FuzzyNot",
     "FuzzyAnd",
     "FuzzyOr",
@@ -50,4 +51,7 @@ __all__ = [
     "FuzzyNor",
     "FuzzyXor",
     "FuzzyXnor",
+    # rule induction
+    "SoftSignedLiteral",
+    "SoftRuleLayer",
 ]
