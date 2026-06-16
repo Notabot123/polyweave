@@ -104,9 +104,22 @@ exponents:
 ```python
 from polyweave.logic import SoftSignedLiteral
 # train on  fly = bird AND NOT penguin  ...
-layer.literals(["bird", "penguin", "d2", "d3"])
-# [('bird', 'required', +1.00), ('penguin', 'inhibitory', -0.99)]   distractors ~0
+feats = ["bird", "penguin", "has_wings", "is_grey"]
+layer.literals(feats)
+# [('bird', 'required', +0.80), ('penguin', 'inhibitory', -0.65)]   distractors ~0
 ```
+
+`polyweave.viz` turns those exponents into a picture you can read straight off as a rule —
+green is a required literal, vermillion an inhibitory (negated) one:
+
+```python
+from polyweave.viz import plot_rule_exponents
+
+plot_rule_exponents({"fly = bird & not penguin": dict(zip(feats, layer.w.tolist()))},
+                    "rule_exponents")
+```
+
+![Induced rule: bird AND NOT penguin](../assets/rule_exponents.png)
 
 `SoftRuleLayer` ORs several of these into a soft DNF. On a 2-rule, *non-linearly-separable*
 target `(bird ∧ ¬penguin) ∨ (bat ∧ ¬broken)`, it recovers both rules — where a linear

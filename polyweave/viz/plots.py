@@ -377,6 +377,98 @@ def plot_zeroshot_bar(
     return save_figure(fig, name, plots_dir=plots_dir)
 
 
+def plot_rule_exponents(
+    rules: Dict[str, Dict[str, float]],
+    name: str,
+    title: str = "Induced rule",
+    threshold: float = 0.3,
+    plots_dir: Path = DEFAULT_PLOTS_DIR,
+    figsize: Tuple[float, float] | None = None,
+) -> List[Path]:
+    """Bar chart of a learned rule's signed exponents, one panel per rule.
+
+    ``rules`` maps a rule label to ``{feature: signed exponent}`` — e.g. built from
+    a :class:`~polyweave.logic.SoftSignedLiteral` /
+    :class:`~polyweave.logic.SoftRuleLayer`. Positive bars are *required* literals,
+    negative bars are *inhibitory* (negated) literals; bars within ``+/- threshold``
+    are drawn grey as effectively ignored, and dashed guides mark the cutoffs. So a
+    learned rule like ``bird & not penguin`` reads off as a green bar on ``bird`` and
+    a vermillion bar on ``penguin``.
+    """
+    from matplotlib.patches import Patch
+
+    items = list(rules.items())
+    n = max(len(items), 1)
+    n_feat = max((len(d) for _, d in items), default=1)
+    figsize = figsize or (max(4.5, 0.75 * n_feat + 1.5), 2.5 * n + 0.5)
+    fig, axes = plt.subplots(n, 1, figsize=figsize, squeeze=False)
+    for ax, (label, weights) in zip(axes[:, 0], items):
+        feats = list(weights.keys())
+        vals = [weights[f] for f in feats]
+        colors = [
+            OKABE_ITO[2] if v > threshold else (OKABE_ITO[1] if v < -threshold else "#bbbbbb")
+            for v in vals
+        ]
+        ax.bar(range(len(feats)), vals, 0.65, color=colors, edgecolor="black", linewidth=0.5)
+        ax.axhline(0.0, color="black", lw=0.8)
+        ax.axhline(threshold, ls="--", lw=0.9, color="grey", alpha=0.7)
+        ax.axhline(-threshold, ls="--", lw=0.9, color="grey", alpha=0.7)
+        ax.set_xticks(range(len(feats)))
+        ax.set_xticklabels(feats, rotation=30, ha="right")
+        ax.set_ylabel("signed exponent")
+        if len(items) > 1:
+            ax.set_title(label, fontsize="small")
+    axes[0, 0].legend(
+        handles=[Patch(facecolor=OKABE_ITO[2], label="required"),
+                 Patch(facecolor=OKABE_ITO[1], label="inhibitory")],
+        loc="best", fontsize="small",
+    )
+    fig.suptitle(title)
+    fig.tight_layout()
+    return save_figure(fig, name, plots_dir=plots_dir)
+
+
+def plot_chaining_trace(
+    trace: Sequence,
+    fact_names: Sequence[str],
+    name: str,
+    title: str = "Forward-chaining trace",
+    step_labels: Sequence[str] | None = None,
+    plots_dir: Path = DEFAULT_PLOTS_DIR,
+    figsize: Tuple[float, float] | None = None,
+) -> List[Path]:
+    """Heatmap of fact truth values across forward-chaining steps.
+
+    ``trace`` is a sequence of per-step truth vectors — e.g. the ``history`` from
+    ``ForwardChainer(..., return_history=True)`` (each a ``[1, N]`` tensor) or a 2-D
+    ``[steps, facts]`` array. Rows are chaining steps (top = initial facts), columns
+    are facts; the sequential colour map shows truth propagating to the fixpoint.
+    """
+    import numpy as np
+
+    rows = []
+    for r in trace:
+        a = r.detach().cpu() if hasattr(r, "detach") else r
+        rows.append(np.asarray(a, dtype=float).reshape(-1))
+    arr = np.vstack(rows)
+    n_steps, n_facts = arr.shape
+
+    figsize = figsize or (max(5.0, 0.7 * n_facts + 1.5), 0.55 * n_steps + 1.5)
+    fig, ax = plt.subplots(figsize=figsize)
+    im = ax.imshow(arr, cmap="YlGn", vmin=0.0, vmax=1.0, aspect="auto", interpolation="nearest")
+    ax.set_xticks(range(n_facts))
+    ax.set_xticklabels(list(fact_names), rotation=30, ha="right")
+    labels = list(step_labels) if step_labels is not None else [f"step {i}" for i in range(n_steps)]
+    ax.set_yticks(range(n_steps))
+    ax.set_yticklabels(labels)
+    ax.grid(False)
+    ax.set_title(title)
+    cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    cbar.set_label("truth value")
+    fig.tight_layout()
+    return save_figure(fig, name, plots_dir=plots_dir)
+
+
 def plot_grouped_bars(
     groups: Dict[str, Dict[str, float]],
     name: str,

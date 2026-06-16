@@ -57,6 +57,20 @@ From `raining` alone the chainer derives the whole consequent chain
 (`wet_grass -> slippery`, `umbrella -> prepared`). `rainbow` stays false because its
 rule also needs `sunny`, which was never asserted.
 
+`polyweave.viz` turns the step history into a picture of the propagation:
+
+```python
+from polyweave.viz import plot_chaining_trace
+
+plot_chaining_trace(history, kb.fact_names, "chaining_trace")
+```
+
+![Forward-chaining trace](../assets/chaining_trace.png)
+
+Each row is a chaining step (top = initial facts); a cell turns green as its fact becomes
+true. `raining` fires `wet_grass` and `umbrella`, which in turn fire `slippery` and
+`prepared`; `sunny` and `rainbow` stay pale because `sunny` was never asserted.
+
 ## Entailment queries
 
 For propositional Horn clauses, forward chaining to the fixpoint is **sound and
