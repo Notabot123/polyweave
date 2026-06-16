@@ -5,6 +5,7 @@ from __future__ import annotations
 from .plots import (
     OKABE_ITO,
     configure_plots,
+    plot_chaining_trace,
     plot_conjunction_index,
     plot_diversity_hist,
     plot_ensemble_bars,
@@ -12,6 +13,7 @@ from .plots import (
     plot_lines,
     plot_occlusion_heatmaps,
     plot_occlusion_overlay,
+    plot_rule_exponents,
     plot_zeroshot_bar,
     save_figure,
 )
@@ -28,4 +30,6 @@ __all__ = [
     "plot_ensemble_bars",
     "plot_diversity_hist",
     "plot_grouped_bars",
+    "plot_rule_exponents",
+    "plot_chaining_trace",
 ]
