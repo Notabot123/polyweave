@@ -19,7 +19,7 @@ a follow-up studies how linear a transformer's feed-forward block really is by d
 it into a single layer. A proper citation block will be added here once the papers are
 public.
 
-> **Status:** v0.1.0 — alpha. The API may still shift before a PyPI release.
+> **Status:** v0.2.0 — alpha. The API may still shift before a PyPI release.
 > 📖 **Documentation:** <https://Notabot123.github.io/polyweave/>
 
 ---
