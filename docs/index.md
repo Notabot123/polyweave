@@ -16,7 +16,7 @@ assuming they do.
 The library underpins an ongoing series of papers on multiplicative hypernetworks.
 
 !!! note "Status"
-    v0.1.0 — alpha. The public API may still shift before it stabilises.
+    v0.2.0 — alpha. The public API may still shift before it stabilises.
 
 ## Where to go next
 

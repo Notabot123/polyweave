@@ -3,7 +3,7 @@ name: Publish
 # Builds the sdist + wheel and publishes to PyPI via Trusted Publishing (OIDC) —
 # no API tokens are stored in the repository.
 #
-#   * push a tag like `v0.1.0`           -> publishes to real PyPI
+#   * push a tag like `v0.2.0`           -> publishes to real PyPI
 #   * run manually (workflow_dispatch)   -> choose TestPyPI (default) or PyPI
 #
 # ONE-TIME SETUP before the first tag (done by the maintainer, not in code):
