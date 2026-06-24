@@ -1,9 +1,9 @@
-"""PolyWeave — multiplicative (Sigma-Pi) layers and hypernetworks.
+"""PolyWeave — multiplicative (Sigma-Pi) layers, hypernetworks, and analytical modules.
 
 A small, modular library extracted from the Autodidact / Sigma-Pi hypernetwork
 experiments. The architecture is layered:
 
-    ops        — pure functions (signed-log, etc.)
+    ops        — pure functions (signed-log, radbas, etc.)
     layers     — nn.Module building blocks (ConvSigmaPi2d, ...)
     targets    — pack / unpack / install generated weights for a target layer
     prototypes — compact support-set representations (statistical + learnable)
@@ -12,6 +12,8 @@ experiments. The architecture is layered:
     training   — generic teacher-training loop + checkpoint I/O
     logic      — differentiable fuzzy gates (AND = product; XOR in one neuron)
     reasoning  — differentiable forward chaining over a propositional Horn KB
+    maths      — exact mathematical structures as zero-parameter neural modules
+                 (Pascal triangle, binomial expansion, prime sieve)
     viz        — publication-quality plotting (PDF, large fonts, colourblind-safe)
     metrics    — diagnostics (pi-scale, ensemble disagreement)
 
@@ -30,6 +32,7 @@ from . import (
     hypernets,
     interpretability,
     logic,
+    maths,
     metrics,
     ops,
     prototypes,
@@ -54,6 +57,7 @@ __all__ = [
     "distill",
     "interpretability",
     "logic",
+    "maths",
     "reasoning",
     "metrics",
     "utils",

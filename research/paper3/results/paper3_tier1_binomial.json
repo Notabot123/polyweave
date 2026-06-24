@@ -1,0 +1,16 @@
+{
+  "n_samples": 1792,
+  "n_train": 1433,
+  "n_val": 359,
+  "epochs": 500,
+  "coeff_range": 8,
+  "power_range": 8,
+  "structured_exact_acc": 1.0,
+  "mlp_exact_acc_train": 0.0272,
+  "mlp_exact_acc_val": 0.0028,
+  "mlp_tol05_acc_train": 0.0272,
+  "mlp_tol05_acc_val": 0.0028,
+  "mlp_params": 202512,
+  "structured_params": 0,
+  "mlp_train_sec": 30.92
+}
