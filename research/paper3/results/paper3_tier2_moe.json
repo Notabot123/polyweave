@@ -1,0 +1,26 @@
+{
+  "train_max": 100,
+  "eval_max": 500,
+  "epochs": 400,
+  "sieve": {
+    "acc_train": 1.0,
+    "acc_ood": 1.0,
+    "acc_all": 1.0,
+    "params": 0
+  },
+  "blind_mlp": {
+    "acc_train": 0.7475,
+    "acc_ood": 0.825,
+    "acc_all": 0.8096,
+    "params": 4353,
+    "train_sec": 2.83
+  },
+  "moe": {
+    "acc_train": 0.7778,
+    "acc_ood": 0.825,
+    "acc_all": 0.8156,
+    "params": 4483,
+    "train_sec": 1.83,
+    "final_router_w_sieve": 0.9404
+  }
+}

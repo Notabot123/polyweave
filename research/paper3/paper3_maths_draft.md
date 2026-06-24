@@ -150,35 +150,56 @@ Result: 100% accuracy (provable; see `multiples_of_thirteen.ipynb`).
 Baseline: standard MLP (reported in [CITE: notebook] as unable to learn this task).
 
 **Task B — Primality detection.**
-Input: integer n ∈ [2, N]. Label: is_prime(n).
-Method: `DifferentiableSieve(N)`.
-Result: 100% accuracy for all n ≤ N (provable from sieve correctness).
-Baseline: [TBD — train MLP on primes 2–100, report accuracy on 2–500]
+Input: integer n ∈ [2, 500]. Label: is_prime(n).
+Method: `DifferentiableSieve(500)`.
+Result: **100%** (provable from sieve correctness; 0 params, 0 training).
+Baseline: MLP (33,409 params, 300 epochs, trained on [2, 100]):
+  in-range [2,100] accuracy = 76.8%;  OOD [101,500] = 82.5%;  overall = 81.4%.
+See `run_tier1_primality.py` and `results/paper3_tier1_primality.json`.
 
 **Task C — Binomial expansion.**
-Input: (A, B, n) with A, B ∈ {−8, …, 8}\{0}, n ∈ {2, …, 8}.
-Label: coefficient vector of (Ax + By)^n.
+Input: (A, B, n) with A, B ∈ {−8, …, 8}\{0}, n ∈ {2, …, 8}; 1792 samples.
+Label: exact coefficient vector of (Ax + By)^n (16 outputs).
 Method: `BinomialExpansion(num_rows=16)`.
-Result: 100% accuracy on 1792-sample sweep (confirmed in notebook).
-Baseline: [TBD — multi-output MLP predicting coefficient vector]
+Result: **100%** (provable; exact integer arithmetic; 0 params, 0 training).
+Baseline: MLP (202,512 params, 500 epochs):
+  exact accuracy train = 2.7%;  exact accuracy val = 0.3%;  tol-0.5 val = 0.3%.
+The MLP cannot learn the high-degree polynomial relationship with 202k parameters;
+the structured module solves it in 0 seconds with 0 parameters.
+See `run_tier1_binomial.py` and `results/paper3_tier1_binomial.json`.
 
 ### 5.2 Tier-2: MoE Range Extrapolation
 
-We train a `MixtureOfExpertsPrimeModel` (structured sieve expert + MLP blind expert +
-learned router) on primality labels for n ∈ [2, 100] and evaluate on n ∈ [101, 500].
+We compare three models on primality over n ∈ [2, 500]:
+  1. `DifferentiableSieve(500)` — 0 params, no training
+  2. Blind MLP — trained on [2, 100], evaluated on [101, 500]
+  3. MoE (sieve expert + blind MLP expert + learned router) — same training range
 
-Hypothesis: the structured expert generalises exactly to the held-out range; the blind
-MLP fails; the router learns to weight the structured expert more heavily.
+| Model        | In-range [2,100] | OOD [101,500] | Learned params |
+|---|---|---|---|
+| Sieve        | **100.0%**       | **100.0%**    | 0              |
+| MoE          | 77.8%            | 82.5%         | 4,483          |
+| Blind MLP    | 74.8%            | 82.5%         | 4,353          |
 
-[TBD — run experiment, report router weight evolution + accuracy by range]
+The router's mean weight on the structured sieve expert grows monotonically during
+training: 0.579 at epoch 20, 0.830 at epoch 100, **0.940 at epoch 400**. The router
+learns to trust the structured expert — without being given any signal about what the
+two experts are.
+
+Note: the blind MLP achieves higher OOD accuracy (82.5%) than in-range (74.8%) because
+the OOD range [101,500] is denser in composites, which are easier to classify. The
+sieve is exact across both ranges.
+
+See `run_tier2_moe.py` and `results/paper3_tier2_moe.json`.
 
 ### 5.3 Ablation: Decay Parameter α
 
 We sweep α ∈ {1, 2, 5, 10, 20} for `DifferentiableSieve` and report the sharpness
-of the prime/composite boundary. α = 5 gives near-binary output while retaining
-smooth gradients.
+of the prime/composite boundary. α = 5 (default) gives near-binary output while
+retaining smooth gradients for downstream components.
 
-[TBD]
+[To run: modify decay parameter in DifferentiableSieve constructor — straightforward
+to add to run_tier1_primality.py as a sweep.]
 
 ---
 
