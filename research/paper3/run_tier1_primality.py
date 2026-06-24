@@ -163,6 +163,7 @@ def run(smoke: bool = False) -> dict:
     fig.suptitle("Primality detection: structured module vs MLP baseline")
     fig.tight_layout()
     fig.savefig(PLOTS_DIR / "paper3_tier1_primality.png", dpi=150)
+    fig.savefig(PLOTS_DIR / "paper3_tier1_primality.pdf")
     plt.close(fig)
 
     out_path = RESULTS_DIR / "paper3_tier1_primality.json"

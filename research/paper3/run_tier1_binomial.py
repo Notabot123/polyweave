@@ -198,6 +198,7 @@ def run(smoke: bool = False) -> dict:
     fig.suptitle(f"Binomial expansion: structured module vs MLP  (n_val={N-n_train})")
     fig.tight_layout()
     fig.savefig(PLOTS_DIR / "paper3_tier1_binomial.png", dpi=150)
+    fig.savefig(PLOTS_DIR / "paper3_tier1_binomial.pdf")
     plt.close(fig)
 
     out_path = RESULTS_DIR / "paper3_tier1_binomial.json"

@@ -53,5 +53,6 @@ for n in range(min(NUM_ROWS, 8)):
 fig.tight_layout()
 out = PLOTS / "paper3_pascal_heatmap.png"
 fig.savefig(out, dpi=150)
+fig.savefig(out.with_suffix(".pdf"))
 plt.close(fig)
-print(f"Saved -> {out}")
+print(f"Saved -> {out} + .pdf")

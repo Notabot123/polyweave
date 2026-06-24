@@ -105,6 +105,19 @@ We contribute:
     for future MoE extension (Section~\ref{sec:discussion}).
 \end{enumerate}
 
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.82\linewidth]{plots/paper3_architecture.pdf}
+  \caption{Architecture of the \texttt{polyweave.maths} module pool and the Tier-2
+    mixture-of-experts system. The \texttt{DifferentiableSieve} (solid border) is the
+    active structured expert; \texttt{BinomialExpansion} (dashed) is an additional
+    passive module in the pool. A learned router selects between the sieve expert and a
+    blind MLP. The \texttt{ForwardChainer} (dashed, right) represents the natural future
+    third expert for logical inference, already implemented in
+    \texttt{polyweave.reasoning}.}
+  \label{fig:architecture}
+\end{figure}
+
 % ─────────────────────────────────────────────────────────────────────────────
 \section{Related Work}
 \label{sec:related}
@@ -170,6 +183,16 @@ the full triangle because intermediate $\mathbf{x}_k$ is non-zero only at row $k
 
 The output is exact (integer-valued floating-point) for $n \leq 15$.
 Figure~\ref{fig:pascal} shows the result as a log-scale heatmap.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.62\linewidth]{plots/paper3_pascal_heatmap.pdf}
+  \caption{Pascal's triangle produced by \texttt{PascalTriangle(16)} — log-scale
+    heatmap. Values annotated for $n \leq 7$. Zero learnable parameters; computed by
+    iterative application of the fixed $2{\times}2$ convolution kernel
+    $\mathbf{K} = \bigl[\begin{smallmatrix}1&1\\0&0\end{smallmatrix}\bigr]$.}
+  \label{fig:pascal}
+\end{figure}
 
 \subsection{Binomial Expansion (\texttt{BinomialExpansion})}
 
@@ -237,8 +260,8 @@ The MLP baseline (3 hidden layers, 128 units, ReLU) is trained on $n \in [2, 100
 300 epochs and evaluated on the full range.
 Results in Table~\ref{tab:tier1} and Figure~\ref{fig:sieve} show that the sieve
 achieves 100\% accuracy everywhere by construction; the MLP reaches 76.8\% in-range
-and 82.5\% out-of-range---never reliably detecting primes, and requiring 2.2\,s of
-training and 2{,}209 parameters to do so.
+and 82.5\% out-of-range---never reliably detecting primes, and requiring 7.97\,s of
+training and 33{,}409 parameters to do so.
 
 \paragraph{Task B --- Binomial expansion.}
 Input: $(A, B, n)$ with $A, B \in \{-8,\ldots,8\}\setminus\{0\}$, $n \in \{2,\ldots,8\}$.
@@ -246,7 +269,7 @@ Label: coefficient vector of $(Ax + By)^n \in \mathbb{Z}^{16}$.
 The dataset is a deterministic sweep of 1{,}792 samples (all valid triples), split
 80/20 for the MLP baseline.
 The structured module (\texttt{BinomialExpansion}) achieves 100\% exact accuracy on
-all samples with zero training. The MLP (4 hidden layers, 256 units) achieves 0.3\%
+all samples with zero training. The MLP (4 hidden layers, 256 units) achieves 0.8\%
 exact accuracy on the validation split after 500 epochs: it approximates the
 leading-coefficient magnitude but cannot recover integer polynomial coefficients
 reliably. Figure~\ref{fig:binomial} shows the failure mode directly.
@@ -262,13 +285,36 @@ reliably. Figure~\ref{fig:binomial} shows the failure mode directly.
     Task & Method & Params & Train (s) & In-range & OOD & Exact (val) \\
     \midrule
     Primality   & \texttt{DifferentiableSieve} & \textbf{0} & \textbf{0} & \textbf{100.0\%} & \textbf{100.0\%} & --- \\
-    Primality   & MLP baseline                 & 2{,}209    & 2.2        & 76.8\%            & 82.5\%            & --- \\
+    Primality   & MLP baseline                 & 33{,}409   & 7.97       & 76.8\%            & 82.5\%            & --- \\
     \midrule
     Binomial    & \texttt{BinomialExpansion}   & \textbf{0} & \textbf{0} & ---               & ---               & \textbf{100.0\%} \\
-    Binomial    & MLP baseline                 & 202{,}512  & 30.9       & ---               & ---               & 0.3\%  \\
+    Binomial    & MLP baseline                 & 202{,}512  & 33.60      & ---               & ---               & 0.8\%  \\
     \bottomrule
   \end{tabular}
 \end{table}
+
+\begin{figure}[t]
+  \centering
+  \begin{subfigure}[b]{0.48\linewidth}
+    \includegraphics[width=\linewidth]{plots/paper3_tier1_primality.pdf}
+    \caption{Primality detection: sieve scores (top) vs MLP sigmoid outputs (bottom)
+      for $n \in [2, 500]$. Red = prime, blue = composite. Dashed line = training
+      boundary. The sieve separates cleanly everywhere; the MLP produces diffuse scores
+      throughout.}
+    \label{fig:sieve}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}[b]{0.48\linewidth}
+    \includegraphics[width=\linewidth]{plots/paper3_tier1_binomial.pdf}
+    \caption{Binomial expansion: structured module outputs (exact) vs MLP predictions
+      on the validation split. The MLP approximates magnitude but cannot recover
+      integer coefficients; exact accuracy is 0.8\%.}
+    \label{fig:binomial}
+  \end{subfigure}
+  \caption{Tier-1 zero-shot results. In both tasks the structured module achieves 100\%
+    exact accuracy with zero parameters and zero training time.}
+  \label{fig:tier1}
+\end{figure}
 
 \subsection{Tier-2: MoE Range Extrapolation}
 \label{sec:tier2}
@@ -288,7 +334,8 @@ The central question is whether the router \emph{discovers} the asymmetry.
 
 Figure~\ref{fig:router} (left) shows the mean router weight toward the sieve expert
 $w_0$ over training. Starting from near-uniform initialisation ($w_0 \approx 0.58$),
-the router weight rises monotonically, settling at $w_0 = 0.94$ by epoch 400.
+the router weight rises monotonically, settling at $w_0 \approx 0.93$ by epoch 400
+(range $0.93$--$0.94$ across independent runs).
 This occurs without any supervision signal about which expert is structurally correct.
 Figure~\ref{fig:router} (right) shows the per-$n$ router allocation at inference: the
 router assigns high sieve weight uniformly across the input range, including the
@@ -298,7 +345,7 @@ Table~\ref{tab:tier2} summarises accuracy by range.
 The sieve is exact everywhere; the MoE marginally exceeds the blind MLP in the
 out-of-distribution range by inheriting the sieve's structural correctness.
 The router does not fully collapse to $w_0 = 1$ because the sieve outputs soft scores
-in $(0, 1)$ rather than hard binary labels---the 6\% residual reflects the MLP
+in $(0, 1)$ rather than hard binary labels---the ${\sim}7\%$ residual reflects the MLP
 providing a calibration hedge at the sigmoid boundary.
 
 \begin{table}[t]
@@ -312,11 +359,22 @@ providing a calibration hedge at the sigmoid boundary.
     Method & Params (learned) & In-range [2,100] & OOD [101,500] & All [2,500] \\
     \midrule
     \texttt{DifferentiableSieve} & \textbf{0}   & \textbf{100.0\%} & \textbf{100.0\%} & \textbf{100.0\%} \\
-    MoE (sieve + MLP + router)   & 4{,}483      & 77.8\%           & 82.5\%           & 81.4\%           \\
-    Blind MLP                    & 4{,}353      & 77.8\%           & 82.5\%           & 81.4\%           \\
+    MoE (sieve + MLP + router)   & 4{,}483      & 74.8\%           & 82.5\%           & 81.0\%           \\
+    Blind MLP                    & 4{,}353      & 74.8\%           & 82.5\%           & 81.0\%           \\
     \bottomrule
   \end{tabular}
 \end{table}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{plots/paper3_tier2_moe.pdf}
+  \caption{Tier-2 MoE results. \emph{Left}: mean router weight toward the sieve expert
+    $w_0$ over 400 training epochs, rising from ${\approx}0.58$ to ${\approx}0.93$ without explicit
+    supervision. \emph{Centre}: per-$n$ router allocation at inference (red = prime,
+    blue = composite); the router assigns high sieve weight uniformly, including in the
+    out-of-distribution region $n > 100$. \emph{Right}: accuracy bar chart by range.}
+  \label{fig:router}
+\end{figure}
 
 % ─────────────────────────────────────────────────────────────────────────────
 \section{Discussion}

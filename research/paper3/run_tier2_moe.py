@@ -264,6 +264,7 @@ def run(smoke: bool = False) -> dict:
     fig.suptitle(f"Tier-2 MoE range extrapolation  (train [2,{TRAIN_MAX}], eval [2,{EVAL_MAX}])")
     fig.tight_layout()
     fig.savefig(PLOTS_DIR / "paper3_tier2_moe.png", dpi=150)
+    fig.savefig(PLOTS_DIR / "paper3_tier2_moe.pdf")
     plt.close(fig)
 
     out_path = RESULTS_DIR / "paper3_tier2_moe.json"

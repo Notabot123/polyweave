@@ -10,5 +10,5 @@
   "mlp_acc_ood": 0.825,
   "mlp_params": 33409,
   "sieve_params": 0,
-  "mlp_train_sec": 4.0
+  "mlp_train_sec": 6.6
 }
