@@ -1,0 +1,27 @@
+{
+  "prime": {
+    "sieve_train": 1.0,
+    "sieve_ood": 1.0,
+    "moe_train": 1.0,
+    "moe_ood": 1.0
+  },
+  "binomial": {
+    "structured_exact": 1.0,
+    "moe_top1_train_exact": 1.0,
+    "moe_top1_train_frac_binom": 1.0,
+    "moe_top1_ood_exact": 1.0
+  },
+  "routing_confusion": {
+    "primality": {
+      "sieve": 0.9998,
+      "binom": 0.0001,
+      "mlp": 0.0001
+    },
+    "binomial": {
+      "sieve": 0.0562,
+      "binom": 0.9311,
+      "mlp": 0.0127
+    }
+  },
+  "params_learned": 9742
+}

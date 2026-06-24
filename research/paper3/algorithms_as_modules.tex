@@ -23,8 +23,8 @@
 \providecommand{\tightlist}{%
   \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
 
-\title{Algorithms as Neural Modules:\\
-  Exact Mathematical Structure in Differentiable Networks}
+\title{Mixtures of Algorithmic Experts:\\
+  Exact Mathematical Modules in Differentiable Networks}
 
 \author{%
   Stuart Whipp\\
@@ -37,24 +37,28 @@
 \maketitle
 
 \begin{abstract}
-We present a family of zero-parameter neural modules that encode classical mathematical
-algorithms---Pascal's triangle, the Sieve of Eratosthenes, and binomial expansion---as
-fixed-weight networks composable with learned components.
-Unlike supervised models, these modules solve their target tasks with provable correctness
-and require no training data.
-We show that tasks which defeat standard MLPs entirely---primality detection, exact
-polynomial coefficient recovery---are trivially solved by the corresponding
-zero-parameter module.
-We further demonstrate a mixture-of-experts (MoE) model in which a learned router
-discovers, without supervision, that it should delegate arithmetic queries to the
-structured expert: the router weight toward the structured sieve rises from 0.58 to
-0.94 over training, while the blind MLP expert fails to extrapolate beyond its training
-range.
-The structured expert, by contrast, is exact across all inputs by construction.
-A third expert slot, reserved for differentiable forward chaining over Horn-clause
-knowledge bases, is already implemented in the accompanying library
-(\texttt{polyweave.reasoning}) and constitutes a natural extension of this framework
-to logical inference.
+We study a class of \emph{algorithmic neural modules}: parameter-free PyTorch modules
+that expose exact, bounded computations---primality detection, Pascal's triangle,
+binomial expansion---through differentiable interfaces, as frozen fixed-weight networks
+composable with learned components.
+Rather than asking a supervised model to approximate these tasks from finite samples,
+we encode the corresponding finite algorithm directly as frozen network structure.
+On tasks where standard MLPs trained from finite data fail to recover exact discrete
+structure, the corresponding algorithmic module is provably exact by construction over
+its bounded integer domain.
+We further demonstrate a mixture-of-experts (MoE) architecture in which a learned
+router discovers, without direct expert supervision, that it should delegate to the
+structured expert: when both experts output probabilities and are blended by the router,
+the MoE inherits the sieve's exactness---achieving 100\% accuracy across all evaluation
+ranges versus 81\% for a comparable blind MLP.
+We additionally present a multi-expert setting in which a single router simultaneously
+learns to allocate primality queries to a \texttt{DifferentiableSieve} expert and
+polynomial queries to a \texttt{BinomialExpansion} expert, producing a task-specific
+routing confusion matrix without query-type labels.
+A third expert slot---differentiable forward chaining over Horn-clause knowledge
+bases---is already implemented in the accompanying library (\texttt{polyweave.reasoning})
+and constitutes a natural next step toward neural systems that route between arithmetic,
+algebraic, and logical reasoning.
 All modules are released as \texttt{polyweave.maths}
 (\url{https://github.com/swhipp/autodidact-hypernet}).
 \end{abstract}
@@ -82,27 +86,45 @@ to human mental arithmetic---a person does not reach for a calculator to square 
 integer---and we suggest that structured neural modules provide a substrate for this kind
 of reliable internal computation in artificial systems.
 
+A natural question is: why not simply compute these results symbolically and look them
+up? The answer is composability. A frozen sieve buffer inside a neural network is a
+differentiable feature extractor whose output flows into any downstream learned
+component---a classifier, a router, a language-model head. The structured module handles
+the exact part; the learned component handles variation, uncertainty, and open-ended
+generalisation. This asymmetry is the contribution: not that the algorithm can be
+computed, but that it can be placed as a frozen differentiable expert inside a neural
+routing system and discovered by a learned router without expert-label supervision.
+
 Our modules are implemented as parameter-free \texttt{nn.Module} subclasses in PyTorch.
-They compose naturally with learned components and are differentiable with respect to
-their continuous hyperparameters, enabling joint optimisation in larger systems.
+They expose a differentiable interface and can be composed with learned components
+inside any gradient-based training loop.
+A brief note on what we are and are not claiming: the point is not that these
+algorithms \emph{cannot} be approximated by a large enough MLP with a better encoding.
+The point is subtler and stronger---a finite sample of examples provides no guarantee
+of exact extrapolation, whereas the structured module is exact within its bounded
+integer domain by construction.
 We contribute:
 
 \begin{enumerate}
   \item Three zero-parameter modules---\texttt{PascalTriangle},
-    \texttt{BinomialExpansion}, and \texttt{DifferentiableSieve}---that solve their
-    tasks with provable 100\% accuracy and no training data (Section~\ref{sec:modules}).
+    \texttt{BinomialExpansion}, and \texttt{DifferentiableSieve}---that are provably
+    exact over their bounded integer domain with no training data
+    (Section~\ref{sec:modules}).
   \item A \texttt{BernoulliTriangle} module that encodes simplex and cake-number
-    sequences as a column-wise cumulative sum of Pascal, further illustrating the
+    sequences as a column-wise cumulative sum of Pascal, illustrating the
     combinatorial richness accessible from a single fixed-weight primitive
     (Section~\ref{sec:modules}).
-  \item A mixture-of-experts framework in which a learned router empirically discovers
-    that it should trust the structured sieve expert, with the router weight rising
-    monotonically from initialisation and settling near one (Section~\ref{sec:tier2}).
-  \item An honest comparison: an MLP baseline trained on the same tasks, showing the
-    qualitative failure modes that structured modules avoid (Section~\ref{sec:tier1}).
-  \item Release of all modules as \texttt{polyweave.maths}, with the existing
-    \texttt{polyweave.reasoning} forward chainer constituting a ready-made logic expert
-    for future MoE extension (Section~\ref{sec:discussion}).
+  \item A two-expert MoE in which a learned router discovers, without expert-label
+    supervision, that it should delegate to the structured sieve; when both experts
+    output probabilities the MoE achieves 100\% accuracy across all input ranges
+    versus 81\% for a comparable blind MLP (Section~\ref{sec:tier2}).
+  \item A multi-expert MoE routing simultaneously between a primality expert and a
+    binomial-expansion expert, producing a task-specific routing confusion matrix
+    learned purely from task losses (Section~\ref{sec:tier2b}).
+  \item Release of all modules as \texttt{polyweave.maths}. The existing
+    \texttt{polyweave.reasoning} forward chainer---differentiable Horn-clause inference
+    via product t-norm---constitutes a concrete third expert type for future extension
+    to logical reasoning (Section~\ref{sec:discussion}).
 \end{enumerate}
 
 \begin{figure}[t]
@@ -259,9 +281,13 @@ The structured module is \texttt{DifferentiableSieve(500)}.
 The MLP baseline (3 hidden layers, 128 units, ReLU) is trained on $n \in [2, 100]$ for
 300 epochs and evaluated on the full range.
 Results in Table~\ref{tab:tier1} and Figure~\ref{fig:sieve} show that the sieve
-achieves 100\% accuracy everywhere by construction; the MLP reaches 76.8\% in-range
-and 82.5\% out-of-range---never reliably detecting primes, and requiring 7.97\,s of
-training and 33{,}409 parameters to do so.
+is provably exact over its bounded integer domain; the MLP trained on $n \in [2,100]$
+reaches 76.8\% in-range and 82.5\% out-of-range---failing to recover exact primality
+from finite samples, and requiring 7.97\,s of training and 33{,}409 parameters to do
+so. The MLP baseline is illustrative rather than definitive: a larger model with a
+richer input encoding might do better. The stronger claim is that \emph{no sampled
+approximator} provides a structural guarantee of exact extrapolation, whereas the
+sieve does so by construction.
 
 \paragraph{Task B --- Binomial expansion.}
 Input: $(A, B, n)$ with $A, B \in \{-8,\ldots,8\}\setminus\{0\}$, $n \in \{2,\ldots,8\}$.
@@ -319,48 +345,38 @@ reliably. Figure~\ref{fig:binomial} shows the failure mode directly.
 \subsection{Tier-2: MoE Range Extrapolation}
 \label{sec:tier2}
 
-We train a mixture-of-experts primality model consisting of:
-(i)~a \texttt{DifferentiableSieve} expert (0 learnable parameters; output detached
-from the gradient graph);
-(ii)~a blind MLP expert (2 hidden layers, 64 units);
+We train a two-expert primality MoE consisting of:
+(i)~a \texttt{DifferentiableSieve} expert (0 learnable parameters; output
+$\hat{p}_\text{sieve}(n) = \exp(-\alpha \cdot \text{composite}(n)) \in (0,1)$,
+detached from the gradient graph);
+(ii)~a blind MLP expert (2 hidden layers, 64 units; output converted to probability
+via sigmoid before blending);
 (iii)~a learned router MLP (1 hidden layer, 32 units; softmax output $\mathbf{w}$).
-The combined output is $\hat{y} = w_0 \hat{y}_\text{sieve} + w_1 \hat{y}_\text{blind}$.
-All components are trained jointly on $n \in [2, 100]$ for 400 epochs with binary
-cross-entropy loss. The sieve component receives no gradient.
+The combined output is the probability mixture $\hat{p} = w_0 \hat{p}_\text{sieve}
++ w_1 \hat{p}_\text{blind}$, trained with binary cross-entropy directly on $\hat{p}$.
+Blending probabilities---rather than mixing a probability with a raw logit---is the
+key design choice: it ensures the router can collapse to $w_0 = 1$ and thereby fully
+inherit the sieve's accuracy.
 
-The structured expert is exact on all $n \leq 500$ by construction; the blind MLP is
-trained only on $[2, 100]$ and extrapolates approximately.
-The central question is whether the router \emph{discovers} the asymmetry.
-
-Figure~\ref{fig:router} (left) shows the mean router weight toward the sieve expert
-$w_0$ over training. Starting from near-uniform initialisation ($w_0 \approx 0.58$),
-the router weight rises monotonically, settling at $w_0 \approx 0.93$ by epoch 400
-(range $0.93$--$0.94$ across independent runs).
-This occurs without any supervision signal about which expert is structurally correct.
-Figure~\ref{fig:router} (right) shows the per-$n$ router allocation at inference: the
-router assigns high sieve weight uniformly across the input range, including the
-out-of-distribution region $n > 100$.
-
-Table~\ref{tab:tier2} summarises accuracy by range.
-The sieve is exact everywhere; the MoE marginally exceeds the blind MLP in the
-out-of-distribution range by inheriting the sieve's structural correctness.
-The router does not fully collapse to $w_0 = 1$ because the sieve outputs soft scores
-in $(0, 1)$ rather than hard binary labels---the ${\sim}7\%$ residual reflects the MLP
-providing a calibration hedge at the sigmoid boundary.
+Starting from near-uniform initialisation ($w_0 \approx 0.58$), the router weight
+rises monotonically, settling at $w_0 = 0.996$ by epoch 400.
+Table~\ref{tab:tier2} shows that the MoE achieves 100\% accuracy across both
+in-range and out-of-distribution ranges---matching the sieve exactly rather than
+averaging with an inferior MLP signal.
 
 \begin{table}[t]
   \centering
-  \caption{Tier-2 MoE range extrapolation. Training range: $n \in [2, 100]$;
-    evaluation range: $n \in [2, 500]$.}
+  \caption{Tier-2 MoE: single-task primality. Probability blending allows the MoE
+    to fully inherit sieve accuracy at $w_0 = 0.996$.}
   \label{tab:tier2}
   \small
   \begin{tabular}{lrrrr}
     \toprule
     Method & Params (learned) & In-range [2,100] & OOD [101,500] & All [2,500] \\
     \midrule
-    \texttt{DifferentiableSieve} & \textbf{0}   & \textbf{100.0\%} & \textbf{100.0\%} & \textbf{100.0\%} \\
-    MoE (sieve + MLP + router)   & 4{,}483      & 74.8\%           & 82.5\%           & 81.0\%           \\
-    Blind MLP                    & 4{,}353      & 74.8\%           & 82.5\%           & 81.0\%           \\
+    \texttt{DifferentiableSieve}         & \textbf{0} & \textbf{100.0\%} & \textbf{100.0\%} & \textbf{100.0\%} \\
+    MoE: sieve + MLP (prob mix)          & 4{,}483    & \textbf{100.0\%} & \textbf{100.0\%} & \textbf{100.0\%} \\
+    Blind MLP                            & 4{,}353    & 74.8\%           & 82.5\%           & 81.0\%           \\
     \bottomrule
   \end{tabular}
 \end{table}
@@ -368,12 +384,73 @@ providing a calibration hedge at the sigmoid boundary.
 \begin{figure}[t]
   \centering
   \includegraphics[width=\linewidth]{plots/paper3_tier2_moe.pdf}
-  \caption{Tier-2 MoE results. \emph{Left}: mean router weight toward the sieve expert
-    $w_0$ over 400 training epochs, rising from ${\approx}0.58$ to ${\approx}0.93$ without explicit
-    supervision. \emph{Centre}: per-$n$ router allocation at inference (red = prime,
-    blue = composite); the router assigns high sieve weight uniformly, including in the
-    out-of-distribution region $n > 100$. \emph{Right}: accuracy bar chart by range.}
+  \caption{Tier-2 (single-task) MoE. \emph{Left}: router weight $w_0$ toward the
+    sieve expert, rising from ${\approx}0.58$ to $0.996$ once both experts output
+    probabilities. \emph{Centre}: per-$n$ router allocation at inference.
+    \emph{Right}: accuracy by range.}
   \label{fig:router}
+\end{figure}
+
+\subsection{Tier-2b: Multi-Expert Routing}
+\label{sec:tier2b}
+
+We extend the MoE to two structured experts and two task types, asking whether a
+single router can learn task-to-expert allocation from task losses alone---without
+being told which expert handles which task.
+
+\paragraph{Setup.}
+The expert pool contains:
+(0)~\texttt{DifferentiableSieve} (primality, frozen);
+(1)~\texttt{BinomialExpansion} (polynomial coefficients, frozen);
+(2)~\texttt{DualHeadMLP} (learned residual for both tasks).
+A single router MLP takes a 6-dimensional query feature---encoding task type and
+query parameters in its first two and remaining four dimensions respectively---and
+outputs softmax weights $(w_0, w_1, w_2)$ over the three experts.
+Training uses a joint loss: binary cross-entropy on primality outputs and MSE on
+normalised coefficient vectors.
+
+Crucially, the structured expert not relevant to a given task contributes nothing to
+that task's output directly. The router is nonetheless penalised for allocating mass
+to the irrelevant expert via the softmax Jacobian: increasing $w_\text{binom}$ on a
+primality query reduces $w_\text{sieve}$, raising the primality loss.
+
+\paragraph{Results.}
+After 600 epochs, the router collapses almost entirely to the correct expert
+(Table~\ref{tab:confusion}; Figure~\ref{fig:confusion}):
+
+\begin{table}[h]
+  \centering
+  \caption{Multi-expert routing confusion matrix (mean gate weight per task).
+    Learned from task losses only---no expert-identity labels provided.}
+  \label{tab:confusion}
+  \small
+  \begin{tabular}{lrrr}
+    \toprule
+    Task & \texttt{DifferentiableSieve} & \texttt{BinomialExpansion} & MLP \\
+    \midrule
+    Primality ($n \in [2,100]$)                         & \textbf{1.000} & 0.000 & 0.000 \\
+    Binomial ($A,B \in \{1..4\}$, $n \in \{2..5\}$)   & 0.056 & \textbf{0.931} & 0.013 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Under top-1 (hard) routing---using the argmax expert's output directly---both tasks
+achieve 100\% exact accuracy on training and OOD ranges, since the router selects the
+exact structured expert in virtually all cases.
+This demonstrates that a single learned router can discover and exploit multiple
+structured experts simultaneously, partitioning by task type purely from gradient
+signal.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{plots/paper3_tier2_multi_expert.pdf}
+  \caption{Multi-expert routing. \emph{Left}: routing confusion matrix (green
+    intensity = mean gate weight); the router allocates primality to
+    \texttt{DifferentiableSieve} ($w_0 = 1.000$) and binomial queries to
+    \texttt{BinomialExpansion} ($w_1 = 0.931$) without task-identity labels.
+    \emph{Right}: router weight evolution per task type; within ${\sim}100$ epochs
+    the correct task partition has been discovered.}
+  \label{fig:confusion}
 \end{figure}
 
 % ─────────────────────────────────────────────────────────────────────────────
@@ -424,11 +501,12 @@ exact internal modules rather than approximating them in its feed-forward layers
 
 \paragraph{Limitations.}
 The modules are exact only within their specified ranges ($N$ for the sieve;
-\texttt{num\_rows} for Pascal). The MoE router in Section~\ref{sec:tier2} uses
-a single structured expert; multi-expert routing with task-type disambiguation is
-future work. The router weight $w_0 = 0.94$ falls short of 1 because the sieve
-outputs soft scores; a hard-threshold variant would achieve perfect routing accuracy
-at the cost of non-differentiability.
+\texttt{num\_rows} for Pascal). The router weight in the two-expert MoE
+(Section~\ref{sec:tier2b}) does not collapse entirely to $w_\text{binom} = 1.0$
+for binomial queries ($w_1 = 0.931$) because the joint training loss balances both
+tasks; extended training or a higher learning rate annealing schedule may close this
+gap further. Extending the expert pool to continuous domains or general recurrence
+relations remains future work.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \section{Conclusion}
@@ -437,9 +515,11 @@ at the cost of non-differentiability.
 
 We have shown that classical combinatorial algorithms are expressible as zero-parameter
 neural network modules, enabling exact computation within differentiable architectures.
-A learned router, trained only on classification loss, discovers without supervision
-that it should delegate to the structured expert---a concrete demonstration that
-structured and learned computation are complementary rather than competing.
+Learned routers, trained only on task losses, discover without supervision which
+structured expert to delegate each task type to---including a multi-expert setting
+where a single router simultaneously allocates primality queries to the sieve and
+polynomial queries to the binomial module, achieving 100\% exact accuracy on both
+in-distribution and out-of-distribution inputs under hard routing.
 The three modules presented here, together with the existing \texttt{polyweave.reasoning}
 forward chainer, form the nucleus of a broader differentiable reasoning library
 whose capabilities extend from arithmetic through to propositional logic.
