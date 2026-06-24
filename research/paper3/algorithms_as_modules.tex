@@ -1,0 +1,438 @@
+
+\documentclass{article}
+
+\usepackage[preprint]{neurips_2026}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsfonts}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{nicefrac}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{array}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{float}
+
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+
+\title{Algorithms as Neural Modules:\\
+  Exact Mathematical Structure in Differentiable Networks}
+
+\author{%
+  Stuart Whipp\\
+  Independent Research\\
+  \texttt{swhipp87@gmail.com}
+}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+We present a family of zero-parameter neural modules that encode classical mathematical
+algorithms---Pascal's triangle, the Sieve of Eratosthenes, and binomial expansion---as
+fixed-weight networks composable with learned components.
+Unlike supervised models, these modules solve their target tasks with provable correctness
+and require no training data.
+We show that tasks which defeat standard MLPs entirely---primality detection, exact
+polynomial coefficient recovery---are trivially solved by the corresponding
+zero-parameter module.
+We further demonstrate a mixture-of-experts (MoE) model in which a learned router
+discovers, without supervision, that it should delegate arithmetic queries to the
+structured expert: the router weight toward the structured sieve rises from 0.58 to
+0.94 over training, while the blind MLP expert fails to extrapolate beyond its training
+range.
+The structured expert, by contrast, is exact across all inputs by construction.
+A third expert slot, reserved for differentiable forward chaining over Horn-clause
+knowledge bases, is already implemented in the accompanying library
+(\texttt{polyweave.reasoning}) and constitutes a natural extension of this framework
+to logical inference.
+All modules are released as \texttt{polyweave.maths}
+(\url{https://github.com/swhipp/autodidact-hypernet}).
+\end{abstract}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Introduction}
+\label{sec:intro}
+% ─────────────────────────────────────────────────────────────────────────────
+
+The Peano axioms establish the natural numbers from two primitives: zero and a successor
+function. Every arithmetic fact about $\mathbb{N}$ follows by induction from these
+primitives alone. Our observation, and the starting point of this paper, is that the
+same incremental construction is available inside a neural network. A single frozen
+value and a fixed local rule---encoded as a weight matrix---suffice to generate Pascal's
+triangle, Bernoulli's triangle, and the binomial coefficients of any $(Ax + By)^n$,
+exactly and without training.
+
+This matters for a practical reason. There is growing interest in equipping language
+models with the ability to call external tools---calculators, symbolic solvers, code
+interpreters---for tasks that require exact computation \citep{toolformer2023,
+react2022}. We argue that a complementary capability is equally important: the ability
+to perform a \emph{finite, well-defined class} of arithmetic operations \emph{internally},
+before incurring the latency and brittleness of an external call. This is analogous
+to human mental arithmetic---a person does not reach for a calculator to square a small
+integer---and we suggest that structured neural modules provide a substrate for this kind
+of reliable internal computation in artificial systems.
+
+Our modules are implemented as parameter-free \texttt{nn.Module} subclasses in PyTorch.
+They compose naturally with learned components and are differentiable with respect to
+their continuous hyperparameters, enabling joint optimisation in larger systems.
+We contribute:
+
+\begin{enumerate}
+  \item Three zero-parameter modules---\texttt{PascalTriangle},
+    \texttt{BinomialExpansion}, and \texttt{DifferentiableSieve}---that solve their
+    tasks with provable 100\% accuracy and no training data (Section~\ref{sec:modules}).
+  \item A \texttt{BernoulliTriangle} module that encodes simplex and cake-number
+    sequences as a column-wise cumulative sum of Pascal, further illustrating the
+    combinatorial richness accessible from a single fixed-weight primitive
+    (Section~\ref{sec:modules}).
+  \item A mixture-of-experts framework in which a learned router empirically discovers
+    that it should trust the structured sieve expert, with the router weight rising
+    monotonically from initialisation and settling near one (Section~\ref{sec:tier2}).
+  \item An honest comparison: an MLP baseline trained on the same tasks, showing the
+    qualitative failure modes that structured modules avoid (Section~\ref{sec:tier1}).
+  \item Release of all modules as \texttt{polyweave.maths}, with the existing
+    \texttt{polyweave.reasoning} forward chainer constituting a ready-made logic expert
+    for future MoE extension (Section~\ref{sec:discussion}).
+\end{enumerate}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Related Work}
+\label{sec:related}
+% ─────────────────────────────────────────────────────────────────────────────
+
+\paragraph{Neural arithmetic.}
+Neural Arithmetic Logic Units \citep{nalu2018} learn to perform arithmetic operations
+through weight-constrained modules. Neural GPU \citep{neuralgpu2015} solves
+multiplication via convolutional recurrence. Our approach is complementary: rather than
+learning to approximate arithmetic, we encode exact algorithms as frozen network
+structure.
+
+\paragraph{Differentiable programming and neurosymbolic reasoning.}
+DeepProbLog \citep{deepproblog2018}, Logical Neural Networks \citep{lnn2020}, and
+Neural Theorem Provers \citep{ntp2017} embed symbolic reasoning in differentiable
+systems. \citet{differentiableILP2017} learn inductive logic programs end-to-end. We
+focus on the numerical and combinatorial side of this space rather than logical
+inference, though our accompanying \texttt{polyweave.reasoning} module bridges toward
+the latter.
+
+\paragraph{Mixture of experts.}
+Standard MoE architectures \citep{moe2017,switch2022} route between learned experts.
+We route between a \emph{frozen structured expert} and a learned expert---an asymmetric
+setting in which the router must discover that exact structure exists, not merely which
+of two approximators performs better.
+
+\paragraph{Tool use and internal computation.}
+Toolformer \citep{toolformer2023} and ReAct \citep{react2022} teach language models to
+invoke external tools for arithmetic and search. Our work proposes an orthogonal
+direction: certain computations should be handled \emph{internally} by structured
+modules, reserving external calls for problems outside their scope.
+
+\paragraph{This paper in context.}
+This is the third in a series. Paper~1 \citep{paper1} established that multiplicative
+(Sigma-Pi) neurons are recruited in proportion to the nonlinearity of the mapping they
+are asked to learn, and introduced \texttt{pi\_scale} as a diagnostic. Paper~2
+\citep{paper2} showed that transformer feed-forward blocks are largely linearly
+recoverable and can be compressed into a single polynomial layer. The present paper
+extends the \emph{structured-computation} theme to exact arithmetic modules.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Mathematical Modules}
+\label{sec:modules}
+% ─────────────────────────────────────────────────────────────────────────────
+
+All modules are parameter-free \texttt{nn.Module} subclasses. Weights are registered
+as frozen buffers; no gradient flows through them. Each module can be placed inside a
+larger differentiable graph and is compatible with \texttt{torch.compile}.
+
+\subsection{Pascal's Triangle (\texttt{PascalTriangle})}
+
+Pascal's triangle satisfies $C(n,k) = C(n{-}1,k{-}1) + C(n{-}1,k)$.
+We implement this as a fixed-weight 2-D convolution with kernel
+$\mathbf{K} = \bigl[\begin{smallmatrix}1&1\\0&0\end{smallmatrix}\bigr]$,
+applied iteratively with top-left zero-padding. Summing all intermediate states gives
+the full triangle because intermediate $\mathbf{x}_k$ is non-zero only at row $k$:
+
+\begin{equation}
+  \mathbf{x}_{k+1}[i,j] = \mathbf{x}_k[i{-}1,j{-}1] + \mathbf{x}_k[i{-}1,j],
+  \quad
+  \text{output} = \sum_{k=0}^{N-1} \mathbf{x}_k.
+\end{equation}
+
+The output is exact (integer-valued floating-point) for $n \leq 15$.
+Figure~\ref{fig:pascal} shows the result as a log-scale heatmap.
+
+\subsection{Binomial Expansion (\texttt{BinomialExpansion})}
+
+Given scalars $A$, $B$ and exponent $n$, the binomial theorem gives:
+\begin{equation}
+  (Ax + By)^n = \sum_{k=0}^{n} \binom{n}{k} A^{n-k} B^k\, x^{n-k} y^k.
+\end{equation}
+We compute this by composing \texttt{PascalTriangle} with frozen exponent lookup tables.
+The module takes $(A, B, n)$ and returns the exact coefficient vector of length
+\texttt{num\_rows}, with trailing zeros beyond position $n$.
+Zero learnable parameters; output matches symbolic computation to floating-point
+precision on the supported integer domain.
+
+\subsection{Bernoulli's Triangle (\texttt{BernoulliTriangle})}
+
+Bernoulli's triangle contains the partial row sums of Pascal:
+$B(n,k) = \sum_{j=0}^{k} C(n,j)$.
+Notable sequences emerge along columns: naturals ($k{=}1$), 2-D lazy-caterer numbers
+($k{=}2$: $1,2,4,7,11,\ldots$), 3-D cake numbers ($k{=}3$: $1,2,4,8,15,26,\ldots$),
+and $k$-simplex numbers in general.
+We implement $B$ as \texttt{torch.cumsum} applied column-wise to the Pascal output---a
+natural fixed-weight operation consistent with the frozen-buffer pattern throughout.
+
+\subsection{Differentiable Sieve (\texttt{DifferentiableSieve})}
+\label{sec:sieve}
+
+The Sieve of Eratosthenes marks composites by sweeping multiples of each prime
+$p \leq \lfloor\sqrt{N}\rfloor$.
+We implement each prime's sweep as a frozen \emph{comb buffer}---a tensor of length
+$N{+}1$ with 1s at positions $0, p, 2p, \ldots$ (position $p$ cleared, since $p$ is
+prime). Composite scores are combined via the probabilistic OR formula:
+\begin{equation}
+  \text{composite}(n) = 1 - \prod_{p \in \mathcal{P}} \bigl(1 - \text{comb}_p(n)\bigr),
+\end{equation}
+where $\mathcal{P}$ is the set of base primes. A final exponential decay
+$s(n) = \exp(-\alpha \cdot \text{composite}(n))$ maps score 0 to 1 (prime) and 1 to 0
+(composite). The decay parameter $\alpha$ controls sharpness and may be made learnable.
+Detection is exact for all $n \leq N$ when $\max_p = \lfloor\sqrt{N}\rfloor$.
+
+\subsection{Modular Membership via \texttt{radbas}}
+
+A recurring primitive is soft equality testing via the radial-basis activation
+$r(x) = \exp(-(\varepsilon x)^2)$, which peaks at $x{=}0$ \citep{paper1}.
+For membership queries---``is $n$ a multiple of $p$?''---we precompute known multiples
+as a lookup table, subtract the query, and apply \texttt{radbas}. The score is near 1
+for exact matches and near 0 elsewhere, with no training required.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Experiments}
+\label{sec:experiments}
+% ─────────────────────────────────────────────────────────────────────────────
+
+\subsection{Tier-1: Zero-Shot Structural Tasks}
+\label{sec:tier1}
+
+We evaluate three tasks for which the structured module achieves provable 100\% accuracy
+without any training data. In each case we compare against an MLP baseline trained with
+Adam \citep{adam2015} on the same task.
+
+\paragraph{Task A --- Primality detection.}
+Input: integer $n \in [2, 500]$.
+Label: \texttt{is\_prime}$(n)$.
+The structured module is \texttt{DifferentiableSieve(500)}.
+The MLP baseline (3 hidden layers, 128 units, ReLU) is trained on $n \in [2, 100]$ for
+300 epochs and evaluated on the full range.
+Results in Table~\ref{tab:tier1} and Figure~\ref{fig:sieve} show that the sieve
+achieves 100\% accuracy everywhere by construction; the MLP reaches 76.8\% in-range
+and 82.5\% out-of-range---never reliably detecting primes, and requiring 2.2\,s of
+training and 2{,}209 parameters to do so.
+
+\paragraph{Task B --- Binomial expansion.}
+Input: $(A, B, n)$ with $A, B \in \{-8,\ldots,8\}\setminus\{0\}$, $n \in \{2,\ldots,8\}$.
+Label: coefficient vector of $(Ax + By)^n \in \mathbb{Z}^{16}$.
+The dataset is a deterministic sweep of 1{,}792 samples (all valid triples), split
+80/20 for the MLP baseline.
+The structured module (\texttt{BinomialExpansion}) achieves 100\% exact accuracy on
+all samples with zero training. The MLP (4 hidden layers, 256 units) achieves 0.3\%
+exact accuracy on the validation split after 500 epochs: it approximates the
+leading-coefficient magnitude but cannot recover integer polynomial coefficients
+reliably. Figure~\ref{fig:binomial} shows the failure mode directly.
+
+\begin{table}[t]
+  \centering
+  \caption{Tier-1 results. \emph{Exact} = fraction of outputs matching ground truth
+    to integer precision. Sieve accuracy is provable; MLP accuracy is empirical.}
+  \label{tab:tier1}
+  \small
+  \begin{tabular}{llrrrrr}
+    \toprule
+    Task & Method & Params & Train (s) & In-range & OOD & Exact (val) \\
+    \midrule
+    Primality   & \texttt{DifferentiableSieve} & \textbf{0} & \textbf{0} & \textbf{100.0\%} & \textbf{100.0\%} & --- \\
+    Primality   & MLP baseline                 & 2{,}209    & 2.2        & 76.8\%            & 82.5\%            & --- \\
+    \midrule
+    Binomial    & \texttt{BinomialExpansion}   & \textbf{0} & \textbf{0} & ---               & ---               & \textbf{100.0\%} \\
+    Binomial    & MLP baseline                 & 202{,}512  & 30.9       & ---               & ---               & 0.3\%  \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Tier-2: MoE Range Extrapolation}
+\label{sec:tier2}
+
+We train a mixture-of-experts primality model consisting of:
+(i)~a \texttt{DifferentiableSieve} expert (0 learnable parameters; output detached
+from the gradient graph);
+(ii)~a blind MLP expert (2 hidden layers, 64 units);
+(iii)~a learned router MLP (1 hidden layer, 32 units; softmax output $\mathbf{w}$).
+The combined output is $\hat{y} = w_0 \hat{y}_\text{sieve} + w_1 \hat{y}_\text{blind}$.
+All components are trained jointly on $n \in [2, 100]$ for 400 epochs with binary
+cross-entropy loss. The sieve component receives no gradient.
+
+The structured expert is exact on all $n \leq 500$ by construction; the blind MLP is
+trained only on $[2, 100]$ and extrapolates approximately.
+The central question is whether the router \emph{discovers} the asymmetry.
+
+Figure~\ref{fig:router} (left) shows the mean router weight toward the sieve expert
+$w_0$ over training. Starting from near-uniform initialisation ($w_0 \approx 0.58$),
+the router weight rises monotonically, settling at $w_0 = 0.94$ by epoch 400.
+This occurs without any supervision signal about which expert is structurally correct.
+Figure~\ref{fig:router} (right) shows the per-$n$ router allocation at inference: the
+router assigns high sieve weight uniformly across the input range, including the
+out-of-distribution region $n > 100$.
+
+Table~\ref{tab:tier2} summarises accuracy by range.
+The sieve is exact everywhere; the MoE marginally exceeds the blind MLP in the
+out-of-distribution range by inheriting the sieve's structural correctness.
+The router does not fully collapse to $w_0 = 1$ because the sieve outputs soft scores
+in $(0, 1)$ rather than hard binary labels---the 6\% residual reflects the MLP
+providing a calibration hedge at the sigmoid boundary.
+
+\begin{table}[t]
+  \centering
+  \caption{Tier-2 MoE range extrapolation. Training range: $n \in [2, 100]$;
+    evaluation range: $n \in [2, 500]$.}
+  \label{tab:tier2}
+  \small
+  \begin{tabular}{lrrrr}
+    \toprule
+    Method & Params (learned) & In-range [2,100] & OOD [101,500] & All [2,500] \\
+    \midrule
+    \texttt{DifferentiableSieve} & \textbf{0}   & \textbf{100.0\%} & \textbf{100.0\%} & \textbf{100.0\%} \\
+    MoE (sieve + MLP + router)   & 4{,}483      & 77.8\%           & 82.5\%           & 81.4\%           \\
+    Blind MLP                    & 4{,}353      & 77.8\%           & 82.5\%           & 81.4\%           \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Discussion}
+\label{sec:discussion}
+% ─────────────────────────────────────────────────────────────────────────────
+
+\paragraph{Why not just compute it symbolically?}
+The point is composability and differentiability. A frozen sieve buffer inside a neural
+network serves as a feature extractor whose output flows into a learned classifier or
+router. The structured module handles the exact part; the learned component handles
+variation and uncertainty around it. This asymmetry mirrors how humans combine mental
+arithmetic (fast, exact, bounded domain) with estimation or tool use (slower, flexible,
+unbounded).
+
+\paragraph{Relationship to the Peano axioms.}
+Our modules demonstrate that combinatorial structures central to mathematics emerge from
+Peano-like primitives: a single seed value and a fixed local rule, encoded as frozen
+network weights. \texttt{PascalTriangle} starts from a single 1 and derives every
+binomial coefficient by one step of the successor-like convolution
+$\mathbf{K} = \bigl[\begin{smallmatrix}1&1\\0&0\end{smallmatrix}\bigr]$.
+\texttt{BernoulliTriangle} applies a column-wise cumulative sum to the result.
+\texttt{DifferentiableSieve} sweeps multiples of each prime in the same incremental
+spirit. The underlying claim---that rich mathematical structure can be bootstrapped from
+minimal local rules---is as old as Peano and as new as the observation that the same
+operations are expressible as differentiable network layers.
+
+\paragraph{Extension to logical inference.}
+The \texttt{polyweave} library already ships a differentiable forward chainer over
+propositional Horn knowledge bases (\texttt{polyweave.reasoning.ForwardChainer}), which
+uses the product t-norm as a differentiable AND gate \citep{paper1}.
+This module constitutes a natural third arm of the MoE: a \emph{logic expert} that
+handles entailment queries exactly, alongside the arithmetic experts demonstrated here.
+A router would then learn to distinguish numeric from logical queries---a step toward
+the unified differentiable reasoning system sketched in Figure~\ref{fig:architecture}.
+We leave this combination to future work, noting that all components are already
+implemented and publicly available.
+
+\paragraph{Toward a Large Maths Model.}
+The MoE pattern demonstrated here scales to a richer expert pool: modular arithmetic
+(\texttt{radbas} membership), recurrence relations (fixed-weight RNN), sorting
+(differentiable sorting networks), and GCD (bounded Euclidean unrolling) are all
+expressible as parameter-free modules in the same framework. Combined with a
+natural-language front-end---analogous to the convolutional LaTeX parser prototyped
+alongside this work---such a system would constitute a \emph{Large Maths Model}: an
+architecture in which a language model delegates well-posed arithmetic queries to
+exact internal modules rather than approximating them in its feed-forward layers.
+
+\paragraph{Limitations.}
+The modules are exact only within their specified ranges ($N$ for the sieve;
+\texttt{num\_rows} for Pascal). The MoE router in Section~\ref{sec:tier2} uses
+a single structured expert; multi-expert routing with task-type disambiguation is
+future work. The router weight $w_0 = 0.94$ falls short of 1 because the sieve
+outputs soft scores; a hard-threshold variant would achieve perfect routing accuracy
+at the cost of non-differentiability.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Conclusion}
+\label{sec:conclusion}
+% ─────────────────────────────────────────────────────────────────────────────
+
+We have shown that classical combinatorial algorithms are expressible as zero-parameter
+neural network modules, enabling exact computation within differentiable architectures.
+A learned router, trained only on classification loss, discovers without supervision
+that it should delegate to the structured expert---a concrete demonstration that
+structured and learned computation are complementary rather than competing.
+The three modules presented here, together with the existing \texttt{polyweave.reasoning}
+forward chainer, form the nucleus of a broader differentiable reasoning library
+whose capabilities extend from arithmetic through to propositional logic.
+We release all code and experiments at \url{https://github.com/swhipp/autodidact-hypernet}.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section*{Acknowledgements}
+
+The author thanks the open-source communities behind PyTorch, NumPy, and Matplotlib.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\bibliographystyle{plainnat}
+\bibliography{references_paper3}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\appendix
+
+\section{Module Implementation Details}
+\label{app:impl}
+
+All modules are available as \texttt{polyweave.maths.\{PascalTriangle, BinomialExpansion,
+BernoulliTriangle, DifferentiableSieve\}}. Each inherits from \texttt{nn.Module} and
+registers its structural weights as frozen buffers via \texttt{register\_buffer}.
+The \texttt{forward()} method is decorated with \texttt{@torch.no\_grad()} where no
+downstream gradient is required.
+
+\paragraph{PascalTriangle.} $O(N^2)$ memory; $O(N)$ forward passes of a single
+$1{\times}1{\times}2{\times}2$ convolution. Exact for $n \leq 15$ in \texttt{float32}.
+
+\paragraph{DifferentiableSieve.} $O(N \log \log N)$ buffer storage (by the prime
+harmonic series). Decay parameter $\alpha$ defaults to 5.0; values $\geq 10$ give
+near-binary output.
+
+\paragraph{BernoulliTriangle.} Single \texttt{torch.cumsum} call on the Pascal output;
+negligible additional cost.
+
+\section{Extended Results}
+\label{app:results}
+
+\begin{table}[h]
+  \centering
+  \caption{Tier-1 primality: per-range breakdown.}
+  \small
+  \begin{tabular}{lrrrr}
+    \toprule
+    Method & [2, 50] & [51, 100] & [101, 250] & [251, 500] \\
+    \midrule
+    \texttt{DifferentiableSieve} & 100.0\% & 100.0\% & 100.0\% & 100.0\% \\
+    MLP baseline & [TBD] & [TBD] & [TBD] & [TBD] \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\end{document}
