@@ -295,6 +295,28 @@ def eval_binomial_top1(model: MultiExpertMoE, As: torch.Tensor, Bs: torch.Tensor
     return exact.mean().item(), frac_to_binom.item()
 
 
+def eval_binomial_soft(model: MultiExpertMoE, As: torch.Tensor, Bs: torch.Tensor,
+                       Ns: torch.Tensor, feats: torch.Tensor,
+                       coeff_scale: float) -> float:
+    """Soft mixture: weighted blend of structured + MLP outputs (no hard routing).
+
+    Returns exact accuracy: fraction of samples where all coefficients are within
+    0.5 of the true integer values after unscaling.
+    """
+    model.eval()
+    with torch.no_grad():
+        w        = model.router(feats)                  # (B, 3)
+        y_struct = torch.stack([
+            model.binom(float(A), float(B), int(N))
+            for A, B, N in zip(As, Bs, Ns)
+        ])                                              # (B, num_rows) exact, unscaled
+        y_mlp    = model.mlp.forward_binom(As, Bs, Ns) * coeff_scale  # unscale MLP output
+        # Soft blend in unscaled space
+        y_soft   = w[:, 1:2] * y_struct + w[:, 2:3] * y_mlp
+        exact    = ((y_soft - y_struct).abs() < 0.5).all(dim=-1).float()
+    return exact.mean().item()
+
+
 def routing_confusion(model: MultiExpertMoE, feats_p: torch.Tensor,
                       feats_b: torch.Tensor) -> np.ndarray:
     """Returns (2, 3) matrix: rows=task, cols=[sieve, binom, mlp]."""
@@ -367,6 +389,10 @@ def run(smoke: bool = False) -> dict:
 
     # ── Results ─────────────────────────────────────────────────────────────
     conf_mat = routing_confusion(model, feats_p_tr, feats_b_tr)
+    b_top1_tr,  b_frac   = eval_binomial_top1(model, As_tr,  Bs_tr,  Ns_tr,  feats_b_tr,  coeff_scale)
+    b_top1_ood, _        = eval_binomial_top1(model, As_ood, Bs_ood, Ns_ood, feats_b_ood, coeff_scale)
+    b_soft_tr            = eval_binomial_soft(model, As_tr,  Bs_tr,  Ns_tr,  feats_b_tr,  coeff_scale)
+    b_soft_ood           = eval_binomial_soft(model, As_ood, Bs_ood, Ns_ood, feats_b_ood, coeff_scale)
 
     results = {
         "prime": {
@@ -377,12 +403,11 @@ def run(smoke: bool = False) -> dict:
         },
         "binomial": {
             "structured_exact": 1.0,
-            "moe_top1_train_exact": round(eval_binomial_top1(
-                model, As_tr, Bs_tr, Ns_tr, feats_b_tr, coeff_scale)[0], 4),
-            "moe_top1_train_frac_binom": round(eval_binomial_top1(
-                model, As_tr, Bs_tr, Ns_tr, feats_b_tr, coeff_scale)[1], 4),
-            "moe_top1_ood_exact": round(eval_binomial_top1(
-                model, As_ood, Bs_ood, Ns_ood, feats_b_ood, coeff_scale)[0], 4),
+            "moe_soft_train_exact": round(b_soft_tr, 4),
+            "moe_soft_ood_exact":   round(b_soft_ood, 4),
+            "moe_top1_train_exact": round(b_top1_tr, 4),
+            "moe_top1_train_frac_binom": round(b_frac, 4),
+            "moe_top1_ood_exact": round(b_top1_ood, 4),
         },
         "routing_confusion": {
             "primality":  {k: round(float(v), 4)
@@ -398,11 +423,10 @@ def run(smoke: bool = False) -> dict:
     print(f"\nPrimality accuracy:")
     print(f"  Sieve (standalone): train={results['prime']['sieve_train']:.1%}  OOD={results['prime']['sieve_ood']:.1%}")
     print(f"  MoE:                train={results['prime']['moe_train']:.1%}    OOD={results['prime']['moe_ood']:.1%}")
-    b_top1_tr, b_frac = eval_binomial_top1(model, As_tr, Bs_tr, Ns_tr, feats_b_tr, coeff_scale)
-    b_top1_ood, _    = eval_binomial_top1(model, As_ood, Bs_ood, Ns_ood, feats_b_ood, coeff_scale)
-    print(f"\nBinomial exact accuracy (top-1 hard routing):")
+    print(f"\nBinomial exact accuracy:")
     print(f"  Structured (exact): train=100.0%")
-    print(f"  MoE top-1:          train={b_top1_tr:.1%}   OOD={b_top1_ood:.1%}   "
+    print(f"  Soft mixture:       train={b_soft_tr:.1%}   OOD={b_soft_ood:.1%}")
+    print(f"  Top-1 hard routing: train={b_top1_tr:.1%}   OOD={b_top1_ood:.1%}   "
           f"(frac routed to BinomExp: {b_frac:.3f})")
     print(f"\nRouting confusion matrix (mean gate weights):")
     print(f"  {'':14s}  {'Sieve':>8}  {'BinomExp':>8}  {'MLP':>8}")
