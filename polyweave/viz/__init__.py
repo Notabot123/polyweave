@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from .timeseries import (
+    plot_occlusion_stacked,
+    plot_rul_prediction,
+    plot_timeseries_predictions,
+)
 from .plots import (
     OKABE_ITO,
     configure_plots,
@@ -19,6 +24,9 @@ from .plots import (
 )
 
 __all__ = [
+    "plot_occlusion_stacked",
+    "plot_rul_prediction",
+    "plot_timeseries_predictions",
     "OKABE_ITO",
     "configure_plots",
     "save_figure",
