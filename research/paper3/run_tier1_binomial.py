@@ -33,6 +33,8 @@ import torch.nn.functional as F
 
 from polyweave.maths import BinomialExpansion
 
+torch.manual_seed(42)
+
 HERE = Path(__file__).parent
 RESULTS_DIR = HERE / "results"
 PLOTS_DIR   = HERE / "plots"

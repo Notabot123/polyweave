@@ -7,7 +7,7 @@
   },
   "binomial": {
     "structured_exact": 1.0,
-    "moe_soft_train_exact": 0.0,
+    "moe_soft_train_exact": 0.0156,
     "moe_soft_ood_exact": 0.0,
     "moe_top1_train_exact": 1.0,
     "moe_top1_train_frac_binom": 1.0,
@@ -15,14 +15,14 @@
   },
   "routing_confusion": {
     "primality": {
-      "sieve": 0.9998,
+      "sieve": 0.9999,
       "binom": 0.0001,
       "mlp": 0.0001
     },
     "binomial": {
-      "sieve": 0.0785,
-      "binom": 0.9097,
-      "mlp": 0.0117
+      "sieve": 0.0429,
+      "binom": 0.9491,
+      "mlp": 0.008
     }
   },
   "params_learned": 9742

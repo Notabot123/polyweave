@@ -61,7 +61,8 @@ We additionally evaluate a bounded propositional Horn-clause forward chainer
 We do not include this logic module in the MoE routing experiments, since logical
 routing introduces additional design choices around query encoding and OOD benchmark
 construction; it constitutes a natural third expert type for future extension.
-All modules are released as \texttt{polyweave.maths}
+The mathematical modules are released as \texttt{polyweave.maths},
+with the forward chainer in \texttt{polyweave.reasoning}
 (\url{https://github.com/Notabot123/polyweave}).
 \end{abstract}
 
@@ -313,7 +314,7 @@ Label: coefficient vector of $(Ax + By)^n \in \mathbb{Z}^{16}$.
 The dataset is a deterministic sweep of 1{,}792 samples (all valid triples), split
 80/20 for the MLP baseline.
 The structured module (\texttt{BinomialExpansion}) achieves 100\% exact accuracy on
-all samples with zero training. The MLP (4 hidden layers, 256 units) achieves 0.8\%
+all samples with zero training. The MLP (4 hidden layers, 256 units) achieves 0.3\%
 exact accuracy on the validation split after 500 epochs: it approximates the
 leading-coefficient magnitude but cannot recover integer polynomial coefficients
 reliably. Figure~\ref{fig:binomial} shows the failure mode directly.
@@ -356,7 +357,7 @@ rule from finite examples of bounded depth.
     Primality    & MLP baseline                 & 33{,}409   & 76.8\%           & 82.5\%           & --- \\
     \midrule
     Binomial     & \texttt{BinomialExpansion}   & \textbf{0} & ---              & ---              & \textbf{100.0\%} \\
-    Binomial     & MLP baseline                 & 202{,}512  & ---              & ---              & 0.8\%  \\
+    Binomial     & MLP baseline                 & 202{,}512  & ---              & ---              & 0.3\%  \\
     \midrule
     Entailment   & \texttt{ForwardChainer}      & \textbf{0} & \textbf{100.0\%} & \textbf{100.0\%} & --- \\
     Entailment   & MLP baseline                 & 5{,}697    & 100.0\%          & 68.5\%           & --- \\
@@ -378,7 +379,7 @@ rule from finite examples of bounded depth.
     \includegraphics[width=\linewidth]{plots/paper3_tier1_binomial.pdf}
     \caption{Binomial expansion: structured output (exact) vs MLP predictions. The MLP
       approximates coefficient magnitude but cannot recover integer values; exact
-      accuracy is 0.8\%.}
+      accuracy is 0.3\%.}
     \label{fig:binomial}
   \end{subfigure}
 
@@ -507,7 +508,7 @@ After 600 epochs, the router collapses almost entirely to the correct expert
     Task & \texttt{DifferentiableSieve} & \texttt{BinomialExpansion} & MLP \\
     \midrule
     Primality ($n \in [2,100]$)                         & \textbf{1.000} & 0.000 & 0.000 \\
-    Binomial ($A,B \in \{1..4\}$, $n \in \{2..5\}$)   & 0.079 & \textbf{0.910} & 0.012 \\
+    Binomial ($A,B \in \{1..4\}$, $n \in \{2..5\}$)   & 0.043 & \textbf{0.949} & 0.008 \\
     \bottomrule
   \end{tabular}
 \end{table}
@@ -526,9 +527,8 @@ in practice. We therefore report both soft-mixture accuracy and top-1 routing ac
 with the latter being the natural evaluation mode for exact algorithmic experts.
 Top-1 routing routes each query to the argmax
 expert; since the router places the highest gate weight on \texttt{BinomialExpansion}
-for 98\% of binomial queries, exact integer coefficients are recovered in 98.4\% of
-training cases and 100\% of OOD cases (binomial OOD queries converge to
-$w_1 \rightarrow 1$ more reliably than training queries).
+for all binomial queries, exact integer coefficients are recovered in 100\% of
+both training and OOD cases.
 
 \begin{table}[h]
   \centering
@@ -540,8 +540,8 @@ $w_1 \rightarrow 1$ more reliably than training queries).
     \toprule
     Routing mode & Primality (train) & Primality (OOD) & Binomial (train) & Binomial (OOD) \\
     \midrule
-    Soft mixture  & \textbf{100.0\%} & \textbf{100.0\%} & 0.0\%            & 0.0\%          \\
-    Top-1 hard    & \textbf{100.0\%} & \textbf{100.0\%} & 98.4\%           & \textbf{100.0\%} \\
+    Soft mixture  & \textbf{100.0\%} & \textbf{100.0\%} & 1.6\%            & 0.0\%          \\
+    Top-1 hard    & \textbf{100.0\%} & \textbf{100.0\%} & \textbf{100.0\%} & \textbf{100.0\%} \\
     \bottomrule
   \end{tabular}
 \end{table}
@@ -551,8 +551,8 @@ To verify that the router exploits algorithmic structure rather than simply pref
 any frozen branch, we replace \texttt{DifferentiableSieve} and
 \texttt{BinomialExpansion} with frozen random modules of equal parameter count (0)
 but no algorithmic content. Under this ablation the router learns to ignore the random
-frozen experts and collapses toward the MLP: gate mass on the MLP rises to 0.616 for
-primality and 0.910 for binomial. Primality accuracy falls from 100\% to 74.7\%
+frozen experts and collapses toward the MLP: gate mass on the MLP rises to 0.642 for
+primality and 0.927 for binomial. Primality accuracy falls from 100\% to 74.7\%
 (matching the blind MLP baseline); exact binomial accuracy falls to 0\% under both
 routing modes. The full results are shown in Figure~\ref{fig:ablation}. This confirms
 that the routing collapse to exact structured experts is caused by their algorithmic
@@ -578,7 +578,7 @@ purely from gradient signal and without expert-identity supervision.
   \includegraphics[width=\linewidth]{plots/paper3_tier2_multi_expert.pdf}
   \caption{Multi-expert routing (exact experts). \emph{Left}: routing confusion matrix;
     the router assigns primality queries to \texttt{DifferentiableSieve} ($w_0 = 1.000$)
-    and binomial queries to \texttt{BinomialExpansion} ($w_1 \approx 0.91$) without
+    and binomial queries to \texttt{BinomialExpansion} ($w_1 \approx 0.95$) without
     expert-identity labels. \emph{Right}: router weight evolution per task type.}
   \label{fig:confusion}
 \end{figure}
@@ -635,7 +635,7 @@ exact internal modules rather than approximating them in its feed-forward layers
 The modules are exact only within their specified ranges ($N$ for the sieve;
 \texttt{num\_rows} for Pascal). The router weight in the multi-expert MoE
 (Section~\ref{sec:tier2b}) does not collapse entirely to $w_\text{binom} = 1.0$
-for binomial queries ($w_1 = 0.910$) because the joint training loss balances both
+for binomial queries ($w_1 = 0.949$) because the joint training loss balances both
 tasks; extended training or a higher learning rate annealing schedule may close this
 gap further. Extending the expert pool to continuous domains or general recurrence
 relations remains future work.
@@ -650,8 +650,8 @@ neural network modules, enabling exact computation within differentiable archite
 Learned routers, trained only on task losses, learn without expert-identity supervision
 which structured expert to delegate each task type to, including a multi-expert setting
 where a single router simultaneously allocates primality queries to the sieve and
-polynomial queries to the binomial module, achieving near-perfect exact accuracy under
-hard routing (100\% primality across all ranges; 98.4\% binomial in-distribution,
+polynomial queries to the binomial module, achieving perfect exact accuracy under
+hard routing (100\% primality across all ranges; 100\% binomial in-distribution,
 100\% binomial OOD).
 The three modules presented here, together with the existing \texttt{polyweave.reasoning}
 forward chainer, form the nucleus of a broader differentiable reasoning library

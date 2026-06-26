@@ -31,6 +31,8 @@ import torch.nn.functional as F
 
 from polyweave.maths import DifferentiableSieve, BinomialExpansion
 
+torch.manual_seed(42)
+
 # Re-use helpers from the multi-expert script
 from run_tier2_multi_expert import (
     make_primality_data, make_binomial_data, DualHeadMLP, MultiRouter,

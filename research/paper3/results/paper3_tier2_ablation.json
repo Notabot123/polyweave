@@ -11,14 +11,14 @@
   },
   "routing_confusion": {
     "primality": {
-      "sieve": 0.0416,
-      "binom": 0.3423,
-      "mlp": 0.6161
+      "sieve": 0.0309,
+      "binom": 0.3272,
+      "mlp": 0.6419
     },
     "binomial": {
-      "sieve": 0.0377,
-      "binom": 0.0519,
-      "mlp": 0.9104
+      "sieve": 0.0158,
+      "binom": 0.0567,
+      "mlp": 0.9274
     }
   }
 }

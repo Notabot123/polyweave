@@ -37,6 +37,8 @@ import torch.nn.functional as F
 
 from polyweave.maths import DifferentiableSieve, BinomialExpansion
 
+torch.manual_seed(42)
+
 HERE        = Path(__file__).parent
 RESULTS_DIR = HERE / "results"
 PLOTS_DIR   = HERE / "plots"
