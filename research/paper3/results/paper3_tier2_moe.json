@@ -13,14 +13,14 @@
     "acc_ood": 0.825,
     "acc_all": 0.8096,
     "params": 4353,
-    "train_sec": 2.83
+    "train_sec": 3.25
   },
   "moe": {
-    "acc_train": 0.7778,
-    "acc_ood": 0.825,
-    "acc_all": 0.8156,
+    "acc_train": 1.0,
+    "acc_ood": 1.0,
+    "acc_all": 1.0,
     "params": 4483,
-    "train_sec": 1.83,
-    "final_router_w_sieve": 0.9404
+    "train_sec": 1.41,
+    "final_router_w_sieve": 0.9958
   }
 }

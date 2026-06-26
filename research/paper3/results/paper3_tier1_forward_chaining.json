@@ -1,0 +1,19 @@
+{
+  "forward_chainer": {
+    "params": 0,
+    "train_acc": 1.0,
+    "ood_acc": 1.0
+  },
+  "mlp_baseline": {
+    "params": 5697,
+    "train_acc": 1.0,
+    "ood_acc": 0.6852,
+    "ood_pos_acc": 0.6984
+  },
+  "dataset": {
+    "train_examples": 2304,
+    "ood_examples": 1280,
+    "train_positive": 1248,
+    "ood_positive": 736
+  }
+}

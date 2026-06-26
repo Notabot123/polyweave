@@ -1,0 +1,24 @@
+{
+  "ablation": "random_frozen_experts",
+  "primality": {
+    "train": 0.7475,
+    "ood": 0.79
+  },
+  "binomial_top1": {
+    "train": 0.0,
+    "ood": 0.0,
+    "frac_to_rand_binom": 0.0
+  },
+  "routing_confusion": {
+    "primality": {
+      "sieve": 0.0416,
+      "binom": 0.3423,
+      "mlp": 0.6161
+    },
+    "binomial": {
+      "sieve": 0.0377,
+      "binom": 0.0519,
+      "mlp": 0.9104
+    }
+  }
+}

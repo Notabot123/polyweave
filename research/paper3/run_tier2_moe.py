@@ -103,10 +103,10 @@ class MoEPrimalityModel(nn.Module):
         self.router = Router(N, hidden=32)
 
     def forward(self, n: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        w = self.router(n)                           # (batch, 2)
-        y_sieve = self.sieve()[n].detach()           # (batch,) — no grad through sieve
-        y_blind = self.blind(n)                      # (batch,)
-        y = w[:, 0] * y_sieve + w[:, 1] * y_blind   # weighted mix
+        w = self.router(n)                                    # (batch, 2)
+        y_sieve = self.sieve()[n].detach()                    # (batch,) — already in (0,1)
+        y_blind = torch.sigmoid(self.blind(n))                # (batch,) — convert logit → prob
+        y = w[:, 0] * y_sieve + w[:, 1] * y_blind            # blend probabilities in (0,1)
         return y, w
 
 
@@ -116,8 +116,12 @@ class MoEPrimalityModel(nn.Module):
 
 def train(model: nn.Module, ns: torch.Tensor, labels: torch.Tensor,
           epochs: int, lr: float = 1e-3, batch: int = 64,
-          log_every: int = 50) -> dict:
-    """Train model, returning loss history and per-epoch mean router weights (MoE only)."""
+          log_every: int = 50, prob_output: bool = False) -> dict:
+    """Train model, returning loss history and per-epoch mean router weights (MoE only).
+
+    prob_output=True: model returns a probability — use BCE.
+    prob_output=False: model returns a logit — use BCE-with-logits.
+    """
     opt = torch.optim.Adam(
         [p for p in model.parameters() if p.requires_grad], lr=lr
     )
@@ -132,11 +136,14 @@ def train(model: nn.Module, ns: torch.Tensor, labels: torch.Tensor,
             b = perm[i : i + batch]
             out = model(ns[b])
             if isinstance(out, tuple):
-                logits, w = out
+                preds_raw, w = out
                 ep_w0.append(w[:, 0].mean().item())
             else:
-                logits = out
-            loss = F.binary_cross_entropy_with_logits(logits, labels[b])
+                preds_raw = out
+            if prob_output:
+                loss = F.binary_cross_entropy(preds_raw.clamp(1e-7, 1 - 1e-7), labels[b])
+            else:
+                loss = F.binary_cross_entropy_with_logits(preds_raw, labels[b])
             opt.zero_grad(); loss.backward(); opt.step()
             ep_loss += loss.item(); n_b += 1
         losses.append(ep_loss / max(n_b, 1))
@@ -149,12 +156,13 @@ def train(model: nn.Module, ns: torch.Tensor, labels: torch.Tensor,
     return {"losses": losses, "router_w0": router_w0}
 
 
-def accuracy(model: nn.Module, ns: torch.Tensor, labels: torch.Tensor) -> float:
+def accuracy(model: nn.Module, ns: torch.Tensor, labels: torch.Tensor,
+             prob_output: bool = False) -> float:
     model.eval()
     with torch.no_grad():
         out = model(ns)
-        logits = out[0] if isinstance(out, tuple) else out
-        preds = torch.sigmoid(logits) > 0.5
+        raw = out[0] if isinstance(out, tuple) else out
+        preds = (raw > 0.5) if prob_output else (torch.sigmoid(raw) > 0.5)
     return (preds == labels.bool()).float().mean().item()
 
 
@@ -195,7 +203,7 @@ def run(smoke: bool = False) -> dict:
     print("\nTraining MoE...")
     moe = MoEPrimalityModel(EVAL_MAX, hidden=HIDDEN)
     t1 = time.time()
-    moe_hist = train(moe, ns_train, lbl_train, epochs=EPOCHS, log_every=LOG_EVERY)
+    moe_hist = train(moe, ns_train, lbl_train, epochs=EPOCHS, log_every=LOG_EVERY, prob_output=True)
     moe_time = time.time() - t1
 
     # --- Evaluate ---
@@ -215,9 +223,9 @@ def run(smoke: bool = False) -> dict:
             "train_sec": round(blind_time, 2),
         },
         "moe": {
-            "acc_train": round(accuracy(moe, ns_train, lbl_train), 4),
-            "acc_ood":   round(accuracy(moe, ns_ood,   lbl_ood),   4),
-            "acc_all":   round(accuracy(moe, ns_all,   lbl_all),   4),
+            "acc_train": round(accuracy(moe, ns_train, lbl_train, prob_output=True), 4),
+            "acc_ood":   round(accuracy(moe, ns_ood,   lbl_ood,   prob_output=True), 4),
+            "acc_all":   round(accuracy(moe, ns_all,   lbl_all,   prob_output=True), 4),
             "params":    sum(p.numel() for p in moe.parameters() if p.requires_grad),
             "train_sec": round(moe_time, 2),
             "final_router_w_sieve": round(moe_hist["router_w0"][-1], 4) if moe_hist["router_w0"] else None,
@@ -264,6 +272,7 @@ def run(smoke: bool = False) -> dict:
     fig.suptitle(f"Tier-2 MoE range extrapolation  (train [2,{TRAIN_MAX}], eval [2,{EVAL_MAX}])")
     fig.tight_layout()
     fig.savefig(PLOTS_DIR / "paper3_tier2_moe.png", dpi=150)
+    fig.savefig(PLOTS_DIR / "paper3_tier2_moe.pdf")
     plt.close(fig)
 
     out_path = RESULTS_DIR / "paper3_tier2_moe.json"
