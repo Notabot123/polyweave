@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from .poly_conv1d import PolyConv1d
 from .poly_linear import PolyLinear
 from .sigmapi_conv import ConvSigmaPi2d
 from .sigmapi_linear import SigmaPiLinear
 
-__all__ = ["ConvSigmaPi2d", "SigmaPiLinear", "PolyLinear"]
+__all__ = ["ConvSigmaPi2d", "SigmaPiLinear", "PolyLinear", "PolyConv1d"]
