@@ -176,30 +176,41 @@ def run(smoke: bool = False) -> dict:
         "mlp_train_sec":        round(train_time, 2),
     }
 
-    # --- Plot: training loss + scatter of true vs predicted coefficients ---
-    fig, axes = plt.subplots(1, 2, figsize=(11, 4))
-
-    axes[0].semilogy(losses)
-    axes[0].set_xlabel("Epoch"); axes[0].set_ylabel("Normalised MSE (log)")
-    axes[0].set_title("MLP training loss")
-
-    # Scatter: first non-zero coefficient for val set
+    # --- Main figure: scatter of true vs predicted leading coefficient ---
     true_c0  = Y_val[:, 0].numpy()
     pred_c0  = pred_val[:, 0].detach().numpy()
     sieve_c0 = Y_val[:, 0].numpy()
-    axes[1].scatter(true_c0, pred_c0,  s=6, alpha=0.5, label=f"MLP (exact={mlp_exact_val:.1%})")
-    axes[1].scatter(true_c0, sieve_c0, s=6, alpha=0.3, label="Structured (100%)", marker="x")
-    lim = max(abs(true_c0).max(), 1)
-    axes[1].plot([-lim, lim], [-lim, lim], "k--", linewidth=0.8)
-    axes[1].set_xlabel("True leading coefficient"); axes[1].set_ylabel("Predicted")
-    axes[1].set_title("Leading coeff: true vs predicted (val set)")
-    axes[1].legend(fontsize=8)
 
-    fig.suptitle(f"Binomial expansion: structured module vs MLP  (n_val={N-n_train})")
+    # Clip axes to 95th-percentile range to focus on the dense cluster
+    clip = float(np.percentile(np.abs(true_c0), 95)) * 1.1
+    clip = max(clip, 1.0)
+
+    fig, ax = plt.subplots(figsize=(5, 5))
+    ax.scatter(true_c0, pred_c0,  s=10, alpha=0.6, label=f"MLP (exact={mlp_exact_val:.1%})")
+    ax.scatter(true_c0, sieve_c0, s=10, alpha=0.5, label="Structured (100%)", marker="x")
+    ax.plot([-clip, clip], [-clip, clip], "k--", linewidth=0.8)
+    ax.set_xlim(-clip, clip)
+    ax.set_ylim(-clip, clip)
+    ax.set_xlabel("True leading coefficient", fontsize=12)
+    ax.set_ylabel("Predicted", fontsize=12)
+    ax.set_title("Binomial: leading coeff true vs predicted (val set)", fontsize=12)
+    ax.tick_params(labelsize=10)
+    ax.legend(fontsize=10)
     fig.tight_layout()
     fig.savefig(PLOTS_DIR / "paper3_tier1_binomial.png", dpi=150)
     fig.savefig(PLOTS_DIR / "paper3_tier1_binomial.pdf")
     plt.close(fig)
+
+    # --- Appendix figure: MLP training loss curve ---
+    fig2, ax2 = plt.subplots(figsize=(5, 3.5))
+    ax2.semilogy(losses)
+    ax2.set_xlabel("Epoch")
+    ax2.set_ylabel("Normalised MSE (log scale)")
+    ax2.set_title("Binomial MLP training loss")
+    fig2.tight_layout()
+    fig2.savefig(PLOTS_DIR / "paper3_tier1_binomial_loss.png", dpi=150)
+    fig2.savefig(PLOTS_DIR / "paper3_tier1_binomial_loss.pdf")
+    plt.close(fig2)
 
     out_path = RESULTS_DIR / "paper3_tier1_binomial.json"
     with open(out_path, "w") as f:

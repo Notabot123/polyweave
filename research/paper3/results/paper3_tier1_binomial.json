@@ -6,11 +6,11 @@
   "coeff_range": 8,
   "power_range": 8,
   "structured_exact_acc": 1.0,
-  "mlp_exact_acc_train": 0.0342,
+  "mlp_exact_acc_train": 0.0488,
   "mlp_exact_acc_val": 0.0111,
-  "mlp_tol05_acc_train": 0.0342,
+  "mlp_tol05_acc_train": 0.0488,
   "mlp_tol05_acc_val": 0.0111,
   "mlp_params": 202512,
   "structured_params": 0,
-  "mlp_train_sec": 55.36
+  "mlp_train_sec": 26.53
 }

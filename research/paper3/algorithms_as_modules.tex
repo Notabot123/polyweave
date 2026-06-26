@@ -47,8 +47,8 @@ On tasks where standard MLPs trained from finite data fail to recover exact disc
 structure, the corresponding algorithmic module is provably exact by construction over
 its bounded integer domain.
 We further demonstrate a mixture-of-experts (MoE) architecture in which a learned
-router discovers, without direct expert supervision, that it should delegate to the
-structured expert: when both experts output probabilities and are blended by the router,
+router learns, without expert-identity labels, to allocate queries to the structured
+expert: when both experts output probabilities and are blended by the router,
 the MoE inherits the sieve's exactness, achieving 100\% accuracy across all evaluation
 ranges versus 81\% for a comparable blind MLP.
 We additionally present a multi-expert setting in which a single router simultaneously
@@ -56,12 +56,13 @@ learns to allocate primality queries to a \texttt{DifferentiableSieve} expert an
 polynomial queries to a \texttt{BinomialExpansion} expert, producing a task-specific
 routing confusion matrix without expert-identity labels: the router receives a task
 descriptor but is never told which expert should solve which task.
-A third expert slot, differentiable forward chaining over Horn-clause knowledge
-bases, is already implemented in the accompanying library (\texttt{polyweave.reasoning})
-and constitutes a natural next step toward neural systems that route between arithmetic,
-algebraic, and logical reasoning.
+We additionally evaluate a bounded propositional Horn-clause forward chainer
+(\texttt{ForwardChainer}) as a zero-shot structured reasoning module in Tier-1.
+We do not include this logic module in the MoE routing experiments, since logical
+routing introduces additional design choices around query encoding and OOD benchmark
+construction; it constitutes a natural third expert type for future extension.
 All modules are released as \texttt{polyweave.maths}
-(\url{https://github.com/swhipp/autodidact-hypernet}).
+(\url{https://github.com/Notabot123/polyweave}).
 \end{abstract}
 
 % ─────────────────────────────────────────────────────────────────────────────
@@ -107,7 +108,7 @@ integer domain by construction.
 We contribute:
 
 \begin{enumerate}
-  \item Three zero-parameter modules (\texttt{PascalTriangle},
+  \item Three zero-parameter \texttt{polyweave.maths} modules (\texttt{PascalTriangle},
     \texttt{BinomialExpansion}, and \texttt{DifferentiableSieve}) that are provably
     exact over their bounded integer domain with no training data
     (Section~\ref{sec:modules}).
@@ -115,17 +116,20 @@ We contribute:
     sequences as a column-wise cumulative sum of Pascal, illustrating the
     combinatorial richness accessible from a single fixed-weight primitive
     (Section~\ref{sec:modules}).
-  \item A two-expert MoE in which a learned router discovers, without expert-label
-    supervision, that it should delegate to the structured sieve; when both experts
-    output probabilities the MoE achieves 100\% accuracy across all input ranges
-    versus 81\% for a comparable blind MLP (Section~\ref{sec:tier2}).
+  \item Tier-1 evaluation of a fourth zero-parameter module, \texttt{ForwardChainer}
+    from \texttt{polyweave.reasoning}, as a structured propositional entailment baseline;
+    this logic module is demonstrated in isolation and deliberately deferred from MoE
+    routing (Section~\ref{sec:tier1}).
+  \item A two-expert MoE in which a learned router learns, without expert-label
+    supervision, to delegate to the structured sieve; when both experts output
+    probabilities the MoE achieves 100\% accuracy across all input ranges versus 81\%
+    for a comparable blind MLP (Section~\ref{sec:tier2}).
   \item A multi-expert MoE routing simultaneously between a primality expert and a
-    binomial-expansion expert, producing a task-specific routing confusion matrix
-    learned purely from task losses (Section~\ref{sec:tier2b}).
-  \item Release of all modules as \texttt{polyweave.maths}. The existing
-    \texttt{polyweave.reasoning} forward chainer (differentiable Horn-clause inference
-    via product t-norm) constitutes a concrete third expert type for future extension
-    to logical reasoning (Section~\ref{sec:discussion}).
+    binomial-expansion expert, with an ablation confirming the router collapses toward
+    algorithmically correct experts rather than any frozen branch
+    (Section~\ref{sec:tier2b}).
+  \item Release of all modules as \texttt{polyweave.maths} and
+    \texttt{polyweave.reasoning} at \url{https://github.com/Notabot123/polyweave}.
 \end{enumerate}
 
 \begin{figure}[t]
@@ -164,6 +168,15 @@ focus on the numerical and combinatorial side of this space rather than logical
 inference, though our accompanying \texttt{polyweave.reasoning} module bridges toward
 the latter.
 
+\paragraph{Synthetic logical-reasoning benchmarks.}
+ProofWriter \citep{proofwriter2021} and PrOntoQA \citep{prontoqa2023} evaluate
+multi-step entailment in natural-language and symbolic settings, probing depth
+generalisation in language models. Our propositional Horn task (Section~\ref{sec:tier1})
+is simpler and used only as a bounded diagnostic for exact structured computation, not
+as a claim of open-domain reasoning ability. We do not compare against language-model
+baselines; the relevant contrast is between a zero-parameter structured module and a
+standard feed-forward approximator trained on the same finite examples.
+
 \paragraph{Mixture of experts.}
 Standard MoE architectures \citep{moe2017,switch2022} route between learned experts.
 We route between a \emph{frozen structured expert} and a learned expert, an asymmetric
@@ -177,9 +190,10 @@ direction: certain computations should be handled \emph{internally} by structure
 modules, reserving external calls for problems outside their scope.
 
 \paragraph{This paper in context.}
-This is the third in a series. Paper~1 \citep{paper1} established that multiplicative
+This is the third in a series. Paper~1 \citep{paper1} aims to establish that multiplicative
 (Sigma-Pi) neurons are recruited in proportion to the nonlinearity of the mapping they
-are asked to learn, and introduced \texttt{pi\_scale} as a diagnostic. Paper~2
+are asked to learn, and introduces \texttt{pi\_scale} as a diagnostic (manuscript in
+preparation). Paper~2
 \citep{paper2} showed that transformer feed-forward blocks are largely linearly
 recoverable and can be compressed into a single polynomial layer. The present paper
 extends the \emph{structured-computation} theme to exact arithmetic modules.
@@ -310,16 +324,22 @@ We construct a fixed propositional Horn-clause knowledge base with 8 base facts
 depth 1--4 and conjunction rules.
 The dataset enumerates all $2^8 = 256$ initial fact assignments paired with entailment
 queries for each derived atom, giving 3{,}584 labelled examples.
-Ground truth is computed by \texttt{ForwardChainer} (0 learnable parameters), which is
-sound and complete for propositional Horn-clause entailment by construction.
+Ground truth is generated from the least fixed-point semantics of the finite
+Horn-clause program using an independent Boolean reference implementation (standard
+iterated unit propagation).
+The differentiable \texttt{ForwardChainer} implements the same bounded closure
+operation using product t-norm conjunctions and, because it is sound and complete for
+propositional Horn-clause entailment over the same bounded domain, achieves 100\%
+exact entailment accuracy on both splits.
 We split by derivation depth: queries that require at most 2 rule applications form the
 training set (2{,}304 examples); queries requiring 3 or more form the OOD set
 (1{,}280 examples).
 The MLP baseline (2 hidden layers, 64 units; input: 8-dim initial fact vector concatenated
 with a 14-dim query one-hot) achieves 100\% accuracy on training-depth queries after 300
 epochs but drops to 68.5\% on OOD queries, failing to compose shallow rules into deeper
-chains. \texttt{ForwardChainer} achieves 100\% exact entailment accuracy on both
-splits without training.
+chains. We do not claim this exhausts possible neural architectures for logical entailment;
+the baseline tests whether a standard feed-forward approximator can recover the closure
+rule from finite examples of bounded depth.
 
 \begin{table}[t]
   \centering
@@ -346,7 +366,7 @@ splits without training.
 
 \begin{figure}[t]
   \centering
-  \begin{subfigure}[b]{0.32\linewidth}
+  \begin{subfigure}[b]{0.48\linewidth}
     \includegraphics[width=\linewidth]{plots/paper3_tier1_primality.pdf}
     \caption{Primality: sieve scores vs MLP outputs for $n \in [2, 500]$. The sieve
       separates cleanly across the training boundary (dashed); the MLP produces
@@ -354,15 +374,17 @@ splits without training.
     \label{fig:sieve}
   \end{subfigure}
   \hfill
-  \begin{subfigure}[b]{0.32\linewidth}
+  \begin{subfigure}[b]{0.48\linewidth}
     \includegraphics[width=\linewidth]{plots/paper3_tier1_binomial.pdf}
     \caption{Binomial expansion: structured output (exact) vs MLP predictions. The MLP
       approximates coefficient magnitude but cannot recover integer values; exact
       accuracy is 0.8\%.}
     \label{fig:binomial}
   \end{subfigure}
-  \hfill
-  \begin{subfigure}[b]{0.32\linewidth}
+
+  \vspace{0.5em}
+  \begin{subfigure}[b]{0.70\linewidth}
+    \centering
     \includegraphics[width=\linewidth]{plots/paper3_tier1_forward_chaining.pdf}
     \caption{Propositional entailment: \texttt{ForwardChainer} achieves 100\% on all
       depths; the MLP matches it at training depth ($\leq 2$ rule applications) but
@@ -372,6 +394,23 @@ splits without training.
   \caption{Tier-1 zero-shot results. All three structured modules achieve 100\%
     exact accuracy with zero learnable parameters and zero training time.}
   \label{fig:tier1}
+\end{figure}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{plots/paper3_tier1_forward_chaining_trace.pdf}
+  \caption{Forward-chaining trace for two representative initial fact assignments
+    over the 22-atom propositional KB (8 base facts $b_0$--$b_7$, 14 derived facts
+    $d_0$--$d_{13}$). Each row is one chaining step; a cell turns green as its atom's
+    truth value reaches 1. \emph{Left}: asserting $b_0, b_3, b_4, b_5$ triggers chain
+    A ($b_0 \to d_0 \to d_1 \to \cdots \to d_3$), the conjunction chain
+    ($b_3, b_4 \to d_9 \to d_{10} \to d_{11}$), and the cross-chain rule
+    ($b_5, d_0 \to d_{12} \to d_{13}$), requiring 5 steps to reach the fixpoint.
+    \emph{Right}: asserting $b_1$ alone fires chain B
+    ($b_1 \to d_4 \to d_5 \to d_6$) in 3 steps. The chainer is exact by construction;
+    an MLP trained only on depth $\leq 2$ queries cannot compose rules to recover
+    depth $\geq 3$ entailments.}
+  \label{fig:chaining_trace}
 \end{figure}
 
 \subsection{Tier-2: MoE Range Extrapolation}
@@ -468,7 +507,7 @@ After 600 epochs, the router collapses almost entirely to the correct expert
     Task & \texttt{DifferentiableSieve} & \texttt{BinomialExpansion} & MLP \\
     \midrule
     Primality ($n \in [2,100]$)                         & \textbf{1.000} & 0.000 & 0.000 \\
-    Binomial ($A,B \in \{1..4\}$, $n \in \{2..5\}$)   & 0.056 & \textbf{0.931} & 0.013 \\
+    Binomial ($A,B \in \{1..4\}$, $n \in \{2..5\}$)   & 0.079 & \textbf{0.910} & 0.012 \\
     \bottomrule
   \end{tabular}
 \end{table}
@@ -476,12 +515,16 @@ After 600 epochs, the router collapses almost entirely to the correct expert
 Table~\ref{tab:tier2b_acc} reports accuracy under soft blending and top-1 (hard) routing.
 Soft blending achieves 100\% primality accuracy, since the gate weight collapses to
 $w_0 = 1.000$ and the sieve's contribution fully dominates. For binomial coefficients,
-however, soft blending gives 0\% exact accuracy. This is a mathematical certainty
-rather than a training failure: polynomial coefficients are large integers (up to
-$10{,}240$ in the training set), so any gate weight $w_1 < 1$ scales the exact output
-by $w_1 < 1$, shifting every coefficient outside the $\pm 0.5$ integer-rounding
-tolerance regardless of training duration or model capacity. No additional training
-would recover exactness under soft blending; hard routing is the necessary mechanism. Top-1 routing routes each query to the argmax
+however, soft blending is poorly matched to the evaluation metric.
+The exact expert emits integer coefficient vectors, so any non-negligible residual gate
+mass on another expert scales or perturbs the coefficients, moving them outside the
+$\pm 0.5$ integer-rounding tolerance. This is not a failure of the binomial expert; it
+reflects a mismatch between convex probability-style blending and discrete symbolic
+outputs. Softmax gate weights can in principle approach 1 arbitrarily closely, but the
+rate of convergence under joint training makes exact integer recovery numerically fragile
+in practice. We therefore report both soft-mixture accuracy and top-1 routing accuracy,
+with the latter being the natural evaluation mode for exact algorithmic experts.
+Top-1 routing routes each query to the argmax
 expert; since the router places the highest gate weight on \texttt{BinomialExpansion}
 for 98\% of binomial queries, exact integer coefficients are recovered in 98.4\% of
 training cases and 100\% of OOD cases (binomial OOD queries converge to
@@ -535,7 +578,7 @@ purely from gradient signal and without expert-identity supervision.
   \includegraphics[width=\linewidth]{plots/paper3_tier2_multi_expert.pdf}
   \caption{Multi-expert routing (exact experts). \emph{Left}: routing confusion matrix;
     the router assigns primality queries to \texttt{DifferentiableSieve} ($w_0 = 1.000$)
-    and binomial queries to \texttt{BinomialExpansion} ($w_1 \approx 0.88$) without
+    and binomial queries to \texttt{BinomialExpansion} ($w_1 \approx 0.91$) without
     expert-identity labels. \emph{Right}: router weight evolution per task type.}
   \label{fig:confusion}
 \end{figure}
@@ -578,7 +621,7 @@ that sits alongside the arithmetic and algebraic experts studied here, extending
 system sketched in Figure~\ref{fig:architecture} from numerical to propositional
 reasoning.
 
-\paragraph{Toward a Large Maths Model.}
+\paragraph{Toward structured mathematical expert pools.}
 The MoE pattern demonstrated here scales to a richer expert pool: modular arithmetic
 (\texttt{radbas} membership), recurrence relations (fixed-weight RNN), sorting
 (differentiable sorting networks), and GCD (bounded Euclidean unrolling) are all
@@ -592,7 +635,7 @@ exact internal modules rather than approximating them in its feed-forward layers
 The modules are exact only within their specified ranges ($N$ for the sieve;
 \texttt{num\_rows} for Pascal). The router weight in the multi-expert MoE
 (Section~\ref{sec:tier2b}) does not collapse entirely to $w_\text{binom} = 1.0$
-for binomial queries ($w_1 = 0.931$) because the joint training loss balances both
+for binomial queries ($w_1 = 0.910$) because the joint training loss balances both
 tasks; extended training or a higher learning rate annealing schedule may close this
 gap further. Extending the expert pool to continuous domains or general recurrence
 relations remains future work.
@@ -604,15 +647,16 @@ relations remains future work.
 
 We have shown that classical combinatorial algorithms are expressible as zero-parameter
 neural network modules, enabling exact computation within differentiable architectures.
-Learned routers, trained only on task losses, discover without supervision which
-structured expert to delegate each task type to, including a multi-expert setting
+Learned routers, trained only on task losses, learn without expert-identity supervision
+which structured expert to delegate each task type to, including a multi-expert setting
 where a single router simultaneously allocates primality queries to the sieve and
-polynomial queries to the binomial module, achieving 100\% exact accuracy on both
-in-distribution and out-of-distribution inputs under hard routing.
+polynomial queries to the binomial module, achieving near-perfect exact accuracy under
+hard routing (100\% primality across all ranges; 98.4\% binomial in-distribution,
+100\% binomial OOD).
 The three modules presented here, together with the existing \texttt{polyweave.reasoning}
 forward chainer, form the nucleus of a broader differentiable reasoning library
 whose capabilities extend from arithmetic through to propositional logic.
-We release all code and experiments at \url{https://github.com/swhipp/autodidact-hypernet}.
+We release all code and experiments at \url{https://github.com/Notabot123/polyweave}.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \section*{Acknowledgements}
@@ -657,9 +701,18 @@ negligible additional cost.
     Method & [2, 50] & [51, 100] & [101, 250] & [251, 500] \\
     \midrule
     \texttt{DifferentiableSieve} & 100.0\% & 100.0\% & 100.0\% & 100.0\% \\
-    MLP baseline & [TBD] & [TBD] & [TBD] & [TBD] \\
+    MLP baseline & 71.4\% & 80.0\% & 81.3\% & 83.2\% \\
     \bottomrule
   \end{tabular}
 \end{table}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.55\linewidth]{plots/paper3_tier1_binomial_loss.pdf}
+  \caption{Binomial MLP training loss (normalised MSE, log scale). The MLP converges
+    but fails to recover exact integer coefficients; exact accuracy on the validation
+    set remains below 1\% despite convergence.}
+  \label{fig:binom_loss}
+\end{figure}
 
 \end{document}

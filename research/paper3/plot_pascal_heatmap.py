@@ -43,12 +43,15 @@ ax.set_xlabel("Column $k$")
 ax.set_ylabel("Row $n$")
 ax.set_title(f"Pascal's Triangle ($n \\leq {NUM_ROWS - 1}$, log scale)\nproduced by PascalTriangle module — 0 learnable parameters")
 
-# Annotate a few key values
-for n in range(min(NUM_ROWS, 8)):
+# Annotate all cells; font size decreases for large values to avoid overlap
+for n in range(NUM_ROWS):
     for k in range(n + 1):
         v = int(C[n, k])
-        ax.text(k, n, str(v), ha="center", va="center",
-                fontsize=5.5, color="white" if v > 10 else "black")
+        s = str(v)
+        # Scale font to fit: large numbers need smaller text
+        fs = 5.5 if len(s) <= 3 else (4.5 if len(s) <= 5 else 3.5)
+        ax.text(k, n, s, ha="center", va="center",
+                fontsize=fs, color="white" if v > 10 else "black")
 
 fig.tight_layout()
 out = PLOTS / "paper3_pascal_heatmap.png"

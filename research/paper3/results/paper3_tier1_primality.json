@@ -5,10 +5,10 @@
   "sieve_acc_all": 1.0,
   "sieve_acc_train": 1.0,
   "sieve_acc_ood": 1.0,
-  "mlp_acc_all": 0.8136,
-  "mlp_acc_train": 0.7677,
+  "mlp_acc_all": 0.8116,
+  "mlp_acc_train": 0.7576,
   "mlp_acc_ood": 0.825,
   "mlp_params": 33409,
   "sieve_params": 0,
-  "mlp_train_sec": 6.6
+  "mlp_train_sec": 2.75
 }
